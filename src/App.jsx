@@ -63,7 +63,9 @@ const lbl   = { color:MUT, fontSize:"11px", display:"block", marginBottom:"5px",
 const h2sty = { color:WHT, fontSize:"12px", fontWeight:"700", letterSpacing:"1px", marginBottom:"14px", textTransform:"uppercase" };
 const btn   = (extra={}) => ({ background:WHT, color:BG, border:"none", padding:"12px 22px", borderRadius:"10px", cursor:"pointer", fontWeight:"700", fontSize:"14px", minHeight:"44px", ...extra });
 const btnGh = (extra={}) => ({ background:"transparent", color:MUT, border:`1px solid ${BOR}`, padding:"12px 22px", borderRadius:"10px", cursor:"pointer", fontSize:"14px", minHeight:"44px", ...extra });
-const ttSty = { background:CARD, border:`1px solid ${BOR}`, color:WHT, fontSize:"12px" };
+const ttSty  = { background:CARD, border:`1px solid ${BOR}`, color:WHT, fontSize:"12px" };
+const ttLabel= { color:WHT, fontSize:"12px" };
+const ttItem = { color:WHT, fontSize:"12px" };
 const mentalColor = (m) => ["Excellent","Good"].includes(m) ? GR : m==="Neutral" ? WHT : RD;
 
 export default function App() {
@@ -250,6 +252,7 @@ export default function App() {
   const ALL_TABS = [
     {key:"dashboard",label:"Dashboard", icon:"⊞"},
     {key:"journal",  label:"Journal",   icon:"✎"},
+    {key:"trades",   label:"Trades",    icon:"≡"},
     {key:"checklist",label:"Checklist", icon:"✓"},
     {key:"risk",     label:"Risk Calc", icon:"◎"},
     {key:"plan",     label:"Trade Plan",icon:"◉"},
@@ -586,13 +589,155 @@ export default function App() {
   );
 
   // ── ANALYTICS ─────────────────────────────────────────────
+  // ── TRADES TAB ────────────────────────────────────────────
+  const renderTrades = () => {
+    const [search,   setSearch]   = useState("");
+    const [fInstr,   setFInstr]   = useState("All");
+    const [fType,    setFType]    = useState("All");
+    const [fDir,     setFDir]     = useState("All");
+    const [fGrade,   setFGrade]   = useState("All");
+    const [fFrom,    setFFrom]    = useState("");
+    const [fTo,      setFTo]      = useState("");
+
+    const filtered = trades.filter(t => {
+      if (fInstr !== "All" && t.instrument !== fInstr) return false;
+      if (fType  !== "All" && t.tradeType  !== fType)  return false;
+      if (fDir   !== "All" && t.direction  !== fDir)   return false;
+      if (fGrade !== "All" && t.grade      !== fGrade) return false;
+      if (fFrom  && t.date < fFrom) return false;
+      if (fTo    && t.date > fTo)   return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!t.instrument.toLowerCase().includes(q) &&
+            !t.setup.toLowerCase().includes(q) &&
+            !(t.notes||"").toLowerCase().includes(q) &&
+            !(t.mistakes||"").toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+
+    const filtPnl  = filtered.filter(t=>t.pnl!=="").reduce((s,t)=>s+parseFloat(t.pnl),0);
+    const filtWins = filtered.filter(t=>t.pnl!==""&&parseFloat(t.pnl)>0).length;
+    const filtCl   = filtered.filter(t=>t.pnl!=="").length;
+
+    return (
+      <div>
+        {/* Search + Filters */}
+        <div style={card()}>
+          <div style={h2sty}>All Trades</div>
+          <input type="text" style={{...inp(),marginBottom:"10px"}} placeholder="Search instrument, setup, notes..." value={search} onChange={e=>setSearch(e.target.value)}/>
+          <div style={g2}>
+            <div>
+              <label style={lbl}>Instrument</label>
+              <select style={sel()} value={fInstr} onChange={e=>setFInstr(e.target.value)}>
+                <option>All</option>
+                {[...new Set(trades.map(t=>t.instrument))].map(i=><option key={i}>{i}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Trade Type</label>
+              <select style={sel()} value={fType} onChange={e=>setFType(e.target.value)}>
+                <option>All</option>
+                {tradeTypes.map(t=><option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Direction</label>
+              <select style={sel()} value={fDir} onChange={e=>setFDir(e.target.value)}>
+                <option>All</option>
+                <option>Long</option>
+                <option>Short</option>
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Grade</label>
+              <select style={sel()} value={fGrade} onChange={e=>setFGrade(e.target.value)}>
+                <option>All</option>
+                {GRADES.map(g=><option key={g}>{g}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>From Date</label>
+              <input type="date" style={inp()} value={fFrom} onChange={e=>setFFrom(e.target.value)}/>
+            </div>
+            <div>
+              <label style={lbl}>To Date</label>
+              <input type="date" style={inp()} value={fTo} onChange={e=>setFTo(e.target.value)}/>
+            </div>
+          </div>
+          <button style={{...btnGh({marginTop:"10px"}),fontSize:"12px",padding:"8px 14px"}}
+            onClick={()=>{setSearch("");setFInstr("All");setFType("All");setFDir("All");setFGrade("All");setFFrom("");setFTo("");}}>
+            Clear Filters
+          </button>
+        </div>
+
+        {/* Stats bar */}
+        <div style={{...g4,marginBottom:"14px"}}>
+          {[
+            {label:"Showing",   val:filtered.length+" trades",         color:WHT},
+            {label:"Closed P&L",val:fmt(filtPnl),                      color:filtPnl>=0?GR:RD},
+            {label:"Win Rate",  val:filtCl?((filtWins/filtCl)*100).toFixed(1)+"%":"—", color:WHT},
+            {label:"Closed",    val:filtCl+" trades",                   color:MUT},
+          ].map(x=>(
+            <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"10px",padding:"12px",textAlign:"center"}}>
+              <div style={{color:x.color,fontSize:"16px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
+              <div style={{color:MUT,fontSize:"10px",marginTop:"3px"}}>{x.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Table */}
+        <div style={card()}>
+          {!filtered.length
+            ? <div style={{color:MUT2,textAlign:"center",padding:"32px",fontSize:"13px"}}>No trades match your filters.</div>
+            : <div style={{overflowX:"auto"}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
+                  <thead>
+                    <tr style={{color:MUT,borderBottom:`1px solid ${BOR}`}}>
+                      {["Date","Instrument","Type","Direction","Setup","Entry","Exit","P&L","R:R","Grade","Rules","Emotion",""].map(h=>(
+                        <th key={h} style={{padding:"8px 6px",textAlign:"left",fontWeight:"400",whiteSpace:"nowrap"}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(t=>(
+                      <tr key={t.id} style={{borderBottom:`1px solid ${CARD}`}}>
+                        <td style={{padding:"8px 6px",color:MUT,whiteSpace:"nowrap"}}>{t.date}</td>
+                        <td style={{padding:"8px 6px",color:WHT,whiteSpace:"nowrap"}}>{t.instrument}</td>
+                        <td style={{padding:"8px 6px",color:MUT,whiteSpace:"nowrap"}}>{t.tradeType}</td>
+                        <td style={{padding:"8px 6px",color:t.direction==="Long"?GR:RD,whiteSpace:"nowrap"}}>{t.direction}</td>
+                        <td style={{padding:"8px 6px",color:MUT,fontSize:"11px",maxWidth:"120px",overflow:"hidden"}}>{t.setup}</td>
+                        <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.entry||"—"}</td>
+                        <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.exitPrice||"—"}</td>
+                        <td style={{padding:"8px 6px",fontFamily:"monospace",fontWeight:"700",color:parseFloat(t.pnl||0)>=0?GR:RD}}>{t.pnl?fmt(parseFloat(t.pnl)):"—"}</td>
+                        <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.rrAchieved||"—"}</td>
+                        <td style={{padding:"8px 6px"}}>
+                          <span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"4px",fontSize:"11px"}}>{t.grade||"—"}</span>
+                        </td>
+                        <td style={{padding:"8px 6px",color:t.followedRules==="Yes"?GR:t.followedRules==="No"?RD:MUT,fontSize:"11px"}}>{t.followedRules||"—"}</td>
+                        <td style={{padding:"8px 6px",color:MUT,fontSize:"11px"}}>{t.emotion||"—"}</td>
+                        <td style={{padding:"8px 6px"}}>
+                          <button onClick={()=>deleteTrade(t.id)} style={{background:RD,color:WHT,border:"none",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Del</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>}
+        </div>
+      </div>
+    );
+  };
+
   const renderAnalytics = () => {
-    const data=atab==="intraday"?intraday:swing,st=atab==="intraday"?idSt:swSt;
+    const data = atab==="intraday" ? intraday : atab==="swing" ? swing : trades;
+    const st   = atab==="intraday" ? idSt     : atab==="swing" ? swSt  : allSt;
     const curve=pnlCurve(data),iData=byInstr(data),gData=byGrade(data),eData=byEmotion(data),sData=bySetup(data);
     const noData=<div style={{color:MUT2,textAlign:"center",padding:"32px",fontSize:"13px"}}>No closed trades yet</div>;
+    const TT = <Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"P&L"]}/>;
     return(<div>
       <div style={{display:"flex",gap:"8px",marginBottom:"14px"}}>
-        {[["intraday","Intraday"],["swing","Swing / Positional"]].map(([k,l])=>(
+        {[["intraday","Intraday"],["swing","Swing / Positional"],["combined","Combined"]].map(([k,l])=>(
           <button key={k} onClick={()=>setAtab(k)} style={{flex:1,background:atab===k?WHT:CARD,color:atab===k?BG:MUT,border:`1px solid ${atab===k?WHT:BOR}`,padding:"12px",borderRadius:"10px",cursor:"pointer",fontSize:"13px",fontWeight:atab===k?"700":"400",minHeight:"44px"}}>{l}</button>
         ))}
       </div>
@@ -606,22 +751,22 @@ export default function App() {
       </div>
       <div style={{...card(),marginTop:"14px"}}>
         <div style={h2sty}>P&L Curve</div>
-        {curve.length>0?<ResponsiveContainer width="100%" height={200}><LineChart data={curve}><XAxis dataKey="n" stroke={MUT2} tick={{fill:MUT,fontSize:10}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:10}} tickFormatter={v=>fmt(v)}/><Tooltip contentStyle={ttSty} formatter={v=>[fmt(v),"P&L"]}/><Line type="monotone" dataKey="v" stroke={WHT} strokeWidth={2} dot={false}/></LineChart></ResponsiveContainer>:noData}
+        {curve.length>0?<ResponsiveContainer width="100%" height={200}><LineChart data={curve}><XAxis dataKey="n" stroke={MUT2} tick={{fill:MUT,fontSize:10}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:10}} tickFormatter={v=>fmt(v)}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"Cumulative P&L"]}/><Line type="monotone" dataKey="v" stroke={WHT} strokeWidth={2} dot={false}/></LineChart></ResponsiveContainer>:noData}
       </div>
       <div style={g2}>
         <div style={card()}>
           <div style={h2sty}>By Instrument</div>
-          {iData.length>0?<ResponsiveContainer width="100%" height={190}><BarChart data={iData} margin={{left:10}}><XAxis dataKey="name" stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><Tooltip contentStyle={ttSty} formatter={v=>[fmt(v),"P&L"]}/><Bar dataKey="v" radius={[3,3,0,0]}>{iData.map((d,i)=><Cell key={i} fill={d.v>=0?GR:RD}/>)}</Bar></BarChart></ResponsiveContainer>:noData}
+          {iData.length>0?<ResponsiveContainer width="100%" height={190}><BarChart data={iData} margin={{left:10}}><XAxis dataKey="name" stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"P&L"]}/><Bar dataKey="v" radius={[3,3,0,0]}>{iData.map((d,i)=><Cell key={i} fill={d.v>=0?GR:RD}/>)}</Bar></BarChart></ResponsiveContainer>:noData}
         </div>
         <div style={card()}>
           <div style={h2sty}>By Grade</div>
-          {gData.some(d=>d.n>0)?<ResponsiveContainer width="100%" height={190}><BarChart data={gData} margin={{left:10}}><XAxis dataKey="g" stroke={MUT2} tick={{fill:MUT,fontSize:12}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><Tooltip contentStyle={ttSty} formatter={v=>[fmt(v),"P&L"]}/><Bar dataKey="v" radius={[3,3,0,0]}>{gData.map((d,i)=><Cell key={i} fill={d.v>=0?GR:RD}/>)}</Bar></BarChart></ResponsiveContainer>:noData}
+          {gData.some(d=>d.n>0)?<ResponsiveContainer width="100%" height={190}><BarChart data={gData} margin={{left:10}}><XAxis dataKey="g" stroke={MUT2} tick={{fill:MUT,fontSize:12}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"P&L"]}/><Bar dataKey="v" radius={[3,3,0,0]}>{gData.map((d,i)=><Cell key={i} fill={d.v>=0?GR:RD}/>)}</Bar></BarChart></ResponsiveContainer>:noData}
         </div>
       </div>
       <div style={g2}>
         <div style={card()}>
           <div style={h2sty}>Emotion vs P&L</div>
-          {eData.length>0?<ResponsiveContainer width="100%" height={190}><BarChart data={eData} margin={{left:10}}><XAxis dataKey="e" stroke={MUT2} tick={{fill:MUT,fontSize:10}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><Tooltip contentStyle={ttSty} formatter={v=>[fmt(v),"P&L"]}/><Bar dataKey="v" radius={[3,3,0,0]}>{eData.map((d,i)=><Cell key={i} fill={d.v>=0?GR:RD}/>)}</Bar></BarChart></ResponsiveContainer>:noData}
+          {eData.length>0?<ResponsiveContainer width="100%" height={190}><BarChart data={eData} margin={{left:10}}><XAxis dataKey="e" stroke={MUT2} tick={{fill:MUT,fontSize:10}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"P&L"]}/><Bar dataKey="v" radius={[3,3,0,0]}>{eData.map((d,i)=><Cell key={i} fill={d.v>=0?GR:RD}/>)}</Bar></BarChart></ResponsiveContainer>:noData}
         </div>
         <div style={card()}>
           <div style={h2sty}>Best & Worst Setups</div>
@@ -632,6 +777,7 @@ export default function App() {
   };
 
   // ── REVIEW ────────────────────────────────────────────────
+
   const renderReview = () => {
     const filtered=reviews.filter(r=>r.period===rtab);
     const RF=[{key:"whatWentWell",emoji:"✅",label:"What Went Well",ph:"What did you do right?"},{key:"mistakes",emoji:"❌",label:"Mistakes Made",ph:"Be specific."},{key:"missedSetups",emoji:"👀",label:"Missed Setups",ph:"What did you miss?"},{key:"rulesFollowed",emoji:"📋",label:"Rule Compliance",ph:"Which rules did you follow/break?"},{key:"emotionalTrading",emoji:"😤",label:"Emotional Trading",ph:"Any emotional decisions?"},{key:"regrets",emoji:"😔",label:"Regrets",ph:"What would you do differently?"},{key:"improvements",emoji:"🔧",label:"Improvements",ph:"What will you change?"},{key:"selfCoaching",emoji:"🧠",label:"Self-Coaching (Steenbarger)",ph:"Strengths? Patterns? Build on your best."}];
@@ -888,6 +1034,7 @@ export default function App() {
     switch(tab) {
       case "dashboard":  return renderDashboard();
       case "journal":    return renderJournal();
+      case "trades":     return renderTrades();
       case "checklist":  return renderChecklist();
       case "risk":       return renderRisk();
       case "plan":       return renderPlan();
