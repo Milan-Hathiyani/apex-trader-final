@@ -128,7 +128,7 @@ const mentalColor = (m) => ["Excellent","Good"].includes(m) ? GR : m==="Neutral"
 
 export default function App() {
   // ── STATE ─────────────────────────────────────────────────
-  const [tab,      setTab]      = useState("journal");
+  const [tab,      setTab]      = useState("dashboard");
   const [isMob,    setIsMob]    = useState(window.innerWidth < 640);
   const [showMore, setShowMore] = useState(false);
   const [trades,   setTrades]   = useState([]);
@@ -146,6 +146,8 @@ export default function App() {
   const [userScreen,  setUserScreen]  = useState(true);
   const [importMsg,   setImportMsg]   = useState("");
   const [tSearch,  setTSearch]  = useState("");
+  const DEF_TAB_ORDER = ["dashboard","journal","trades","checklist","risk","plan","analytics","review","customize","settings"];
+  const [tabOrder, setTabOrder] = useState(() => lsGet("top1pct_tabOrder") || DEF_TAB_ORDER);
   const [tFInstr,  setTFInstr]  = useState("All");
   const [tFType,   setTFType]   = useState("All");
   const [tFDir,    setTFDir]    = useState("All");
@@ -350,7 +352,7 @@ export default function App() {
   if(!tf||!pf)return(<div style={{background:BG,minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{color:WHT,fontFamily:"monospace",fontSize:"14px"}}>Initialising...</span></div>);
 
   // ── NAV TABS ──────────────────────────────────────────────
-  const ALL_TABS = [
+  const TAB_DEFS = [
     {key:"dashboard",label:"Dashboard", icon:"⊞"},
     {key:"journal",  label:"Journal",   icon:"✎"},
     {key:"trades",   label:"Trades",    icon:"≡"},
@@ -362,15 +364,28 @@ export default function App() {
     {key:"customize",label:"Customize", icon:"✐"},
     {key:"settings", label:"Settings",  icon:"⚙"},
   ];
+  const ALL_TABS  = tabOrder.map(k=>TAB_DEFS.find(t=>t.key===k)).filter(Boolean);
   const BOT_TABS  = ALL_TABS.slice(0,4);
   const MORE_TABS = ALL_TABS.slice(4);
+
+  const moveTab = (key, dir) => {
+    const idx = tabOrder.indexOf(key);
+    if (idx < 0) return;
+    const next = [...tabOrder];
+    const swap = idx + dir;
+    if (swap < 0 || swap >= next.length) return;
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    setTabOrder(next);
+    lsSet("top1pct_tabOrder", next);
+  };
+  const resetTabOrder = () => { setTabOrder(DEF_TAB_ORDER); lsSet("top1pct_tabOrder", DEF_TAB_ORDER); };
 
   const navTo = (key) => { setTab(key); setShowMore(false); };
 
   // ── DASHBOARD ─────────────────────────────────────────────
   const renderDashboard = () => (
     <div>
-      <div style={{marginBottom:"14px",color:MUT,fontSize:"13px"}}>Welcome back, <span style={{color:WHT,fontWeight:"700"}}>{settings.traderName}</span></div>
+      <div style={{marginBottom:"16px",color:MUT,fontSize:"15px"}}>Welcome back, <span style={{color:WHT,fontWeight:"700",fontSize:"17px"}}>{settings.traderName}</span></div>
       <div style={g4}>
         {[
           {label:"Today P&L",  val:fmt(todayPnl),        color:todayPnl>=0?GR:RD, sub:`Limit: ${fmt(settings.dailyLimit)}`},
@@ -378,10 +393,10 @@ export default function App() {
           {label:"Win Rate",   val:allSt.winRate+"%",     color:WHT,               sub:`${allSt.total} trades`},
           {label:"Profit Factor",val:allSt.pf,            color:WHT,               sub:`Avg RR: ${allSt.avgRR}`},
         ].map(x=>(
-          <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"12px",padding:"14px",textAlign:"center"}}>
-            <div style={{color:x.color,fontSize:M?"20px":"22px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
-            <div style={{color:MUT,fontSize:"10px",marginTop:"3px"}}>{x.label}</div>
-            <div style={{color:MUT2,fontSize:"10px",marginTop:"2px"}}>{x.sub}</div>
+          <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"12px",padding:"16px",textAlign:"center"}}>
+            <div style={{color:x.color,fontSize:M?"24px":"28px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
+            <div style={{color:MUT,fontSize:"12px",marginTop:"5px"}}>{x.label}</div>
+            <div style={{color:MUT2,fontSize:"11px",marginTop:"3px"}}>{x.sub}</div>
           </div>
         ))}
       </div>
@@ -392,11 +407,11 @@ export default function App() {
             const pct=Math.min(100,(x.used/x.limit)*100);
             return(<div key={x.label} style={{marginBottom:"14px"}}>
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:"5px"}}>
-                <span style={{color:MUT,fontSize:"12px"}}>{x.label}</span>
-                <span style={{color:pct>80?RD:WHT,fontSize:"12px",fontFamily:"monospace"}}>{fmt(x.used)} / {fmt(x.limit)}</span>
+                <span style={{color:MUT,fontSize:"13px"}}>{x.label}</span>
+                <span style={{color:pct>80?RD:WHT,fontSize:"13px",fontFamily:"monospace"}}>{fmt(x.used)} / {fmt(x.limit)}</span>
               </div>
-              <div style={{background:MUT2,borderRadius:"4px",height:"5px"}}>
-                <div style={{background:pct>80?RD:WHT,width:`${pct}%`,height:"5px",borderRadius:"4px"}}/>
+              <div style={{background:MUT2,borderRadius:"4px",height:"6px"}}>
+                <div style={{background:pct>80?RD:WHT,width:`${pct}%`,height:"6px",borderRadius:"4px"}}/>
               </div>
             </div>);
           })}
@@ -405,9 +420,9 @@ export default function App() {
           <div style={h2sty}>Quick Stats</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
             {[{label:"Intraday Win %",val:idSt.winRate+"%"},{label:"Swing Win %",val:swSt.winRate+"%"},{label:"Intraday Trades",val:idSt.total},{label:"Swing Trades",val:swSt.total}].map(x=>(
-              <div key={x.label} style={{background:CARD,borderRadius:"10px",padding:"10px"}}>
-                <div style={{color:WHT,fontSize:"18px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
-                <div style={{color:MUT,fontSize:"10px"}}>{x.label}</div>
+              <div key={x.label} style={{background:CARD,borderRadius:"10px",padding:"12px"}}>
+                <div style={{color:WHT,fontSize:"22px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
+                <div style={{color:MUT,fontSize:"12px",marginTop:"2px"}}>{x.label}</div>
               </div>
             ))}
           </div>
@@ -1016,6 +1031,34 @@ export default function App() {
           <div style={{color:WHT,fontSize:"13px",fontWeight:"700"}}>Customize Your System</div>
           <div style={{color:MUT,fontSize:"12px",marginTop:"4px"}}>Changes apply instantly across the entire app</div>
         </div>
+
+        {/* Tab Order */}
+        <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}}>
+            <div style={h2sty}>Tab Order</div>
+            <button onClick={resetTabOrder} style={btnGh({padding:"6px 12px",fontSize:"11px"})}>Reset</button>
+          </div>
+          <div style={{color:MUT2,fontSize:"11px",marginBottom:"12px"}}>First 4 tabs appear in the bottom bar on mobile. Drag order determines what you see first.</div>
+          {tabOrder.map((key, idx) => {
+            const t = TAB_DEFS.find(x=>x.key===key);
+            if (!t) return null;
+            return (
+              <div key={key} style={{display:"flex",alignItems:"center",gap:"10px",padding:"10px 12px",borderRadius:"10px",background:CARD,border:`1px solid ${BOR}`,marginBottom:"6px"}}>
+                <span style={{color:MUT,fontSize:"12px",fontFamily:"monospace",minWidth:"20px"}}>{idx+1}</span>
+                <span style={{color:WHT,fontSize:"14px"}}>{t.icon}</span>
+                <span style={{color:WHT,fontSize:"14px",flex:1}}>{t.label}</span>
+                {idx < 4 && <span style={{background:WHT+"22",color:WHT,fontSize:"10px",padding:"2px 8px",borderRadius:"4px"}}>Bottom nav</span>}
+                <div style={{display:"flex",gap:"4px"}}>
+                  <button onClick={()=>moveTab(key,-1)} disabled={idx===0}
+                    style={{background:idx===0?MUT2:CARD,color:idx===0?BOR:WHT,border:`1px solid ${BOR}`,width:"32px",height:"32px",borderRadius:"6px",cursor:idx===0?"default":"pointer",fontSize:"14px",display:"flex",alignItems:"center",justifyContent:"center"}}>↑</button>
+                  <button onClick={()=>moveTab(key,1)} disabled={idx===tabOrder.length-1}
+                    style={{background:idx===tabOrder.length-1?MUT2:CARD,color:idx===tabOrder.length-1?BOR:WHT,border:`1px solid ${BOR}`,width:"32px",height:"32px",borderRadius:"6px",cursor:idx===tabOrder.length-1?"default":"pointer",fontSize:"14px",display:"flex",alignItems:"center",justifyContent:"center"}}>↓</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         <EditableList title="Trading Instruments" items={instruments} storeKey="instruments" setter={setInstruments} resetVal={DEF_INSTRUMENTS} placeholder="e.g. EUR/USD, BankNifty..." hint="Appears in Journal, Trade Plan and Analytics dropdowns"/>
         <EditableList title="Setups / Strategies" items={setups} storeKey="setups" setter={setSetups} resetVal={DEF_SETUPS} placeholder="e.g. 7 EMA Strategy, Opening Range..." hint="Appears in Journal setup dropdown and Analytics breakdown"/>
         <EditableList title="Emotional States" items={emotions} storeKey="emotions" setter={setEmotions} resetVal={DEF_EMOTIONS} placeholder="e.g. Overconfident, Sharp..."/>
