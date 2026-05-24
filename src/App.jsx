@@ -87,6 +87,13 @@ export default function App() {
   const [newUserName, setNewUserName] = useState("");
   const [userScreen,  setUserScreen]  = useState(true);
   const [importMsg,   setImportMsg]   = useState("");
+  const [tSearch,  setTSearch]  = useState("");
+  const [tFInstr,  setTFInstr]  = useState("All");
+  const [tFType,   setTFType]   = useState("All");
+  const [tFDir,    setTFDir]    = useState("All");
+  const [tFGrade,  setTFGrade]  = useState("All");
+  const [tFFrom,   setTFFrom]   = useState("");
+  const [tFTo,     setTFTo]     = useState("");
 
   // customisable lists
   const [instruments, setInstruments] = useState(DEF_INSTRUMENTS);
@@ -591,23 +598,15 @@ export default function App() {
   // ── ANALYTICS ─────────────────────────────────────────────
   // ── TRADES TAB ────────────────────────────────────────────
   const renderTrades = () => {
-    const [search,   setSearch]   = useState("");
-    const [fInstr,   setFInstr]   = useState("All");
-    const [fType,    setFType]    = useState("All");
-    const [fDir,     setFDir]     = useState("All");
-    const [fGrade,   setFGrade]   = useState("All");
-    const [fFrom,    setFFrom]    = useState("");
-    const [fTo,      setFTo]      = useState("");
-
     const filtered = trades.filter(t => {
-      if (fInstr !== "All" && t.instrument !== fInstr) return false;
-      if (fType  !== "All" && t.tradeType  !== fType)  return false;
-      if (fDir   !== "All" && t.direction  !== fDir)   return false;
-      if (fGrade !== "All" && t.grade      !== fGrade) return false;
-      if (fFrom  && t.date < fFrom) return false;
-      if (fTo    && t.date > fTo)   return false;
-      if (search) {
-        const q = search.toLowerCase();
+      if (tFInstr !== "All" && t.instrument !== tFInstr) return false;
+      if (tFType  !== "All" && t.tradeType  !== tFType)  return false;
+      if (tFDir   !== "All" && t.direction  !== tFDir)   return false;
+      if (tFGrade !== "All" && t.grade      !== tFGrade) return false;
+      if (tFFrom  && t.date < tFFrom) return false;
+      if (tFTo    && t.date > tFTo)   return false;
+      if (tSearch) {
+        const q = tSearch.toLowerCase();
         if (!t.instrument.toLowerCase().includes(q) &&
             !t.setup.toLowerCase().includes(q) &&
             !(t.notes||"").toLowerCase().includes(q) &&
@@ -622,28 +621,27 @@ export default function App() {
 
     return (
       <div>
-        {/* Search + Filters */}
         <div style={card()}>
           <div style={h2sty}>All Trades</div>
-          <input type="text" style={{...inp(),marginBottom:"10px"}} placeholder="Search instrument, setup, notes..." value={search} onChange={e=>setSearch(e.target.value)}/>
+          <input type="text" style={{...inp(),marginBottom:"10px"}} placeholder="Search instrument, setup, notes..." value={tSearch} onChange={e=>setTSearch(e.target.value)}/>
           <div style={g2}>
             <div>
               <label style={lbl}>Instrument</label>
-              <select style={sel()} value={fInstr} onChange={e=>setFInstr(e.target.value)}>
+              <select style={sel()} value={tFInstr} onChange={e=>setTFInstr(e.target.value)}>
                 <option>All</option>
-                {[...new Set(trades.map(t=>t.instrument))].map(i=><option key={i}>{i}</option>)}
+                {[...new Set(trades.map(t=>t.instrument))].filter(Boolean).map(i=><option key={i}>{i}</option>)}
               </select>
             </div>
             <div>
               <label style={lbl}>Trade Type</label>
-              <select style={sel()} value={fType} onChange={e=>setFType(e.target.value)}>
+              <select style={sel()} value={tFType} onChange={e=>setTFType(e.target.value)}>
                 <option>All</option>
                 {tradeTypes.map(t=><option key={t}>{t}</option>)}
               </select>
             </div>
             <div>
               <label style={lbl}>Direction</label>
-              <select style={sel()} value={fDir} onChange={e=>setFDir(e.target.value)}>
+              <select style={sel()} value={tFDir} onChange={e=>setTFDir(e.target.value)}>
                 <option>All</option>
                 <option>Long</option>
                 <option>Short</option>
@@ -651,33 +649,32 @@ export default function App() {
             </div>
             <div>
               <label style={lbl}>Grade</label>
-              <select style={sel()} value={fGrade} onChange={e=>setFGrade(e.target.value)}>
+              <select style={sel()} value={tFGrade} onChange={e=>setTFGrade(e.target.value)}>
                 <option>All</option>
                 {GRADES.map(g=><option key={g}>{g}</option>)}
               </select>
             </div>
             <div>
               <label style={lbl}>From Date</label>
-              <input type="date" style={inp()} value={fFrom} onChange={e=>setFFrom(e.target.value)}/>
+              <input type="date" style={inp()} value={tFFrom} onChange={e=>setTFFrom(e.target.value)}/>
             </div>
             <div>
               <label style={lbl}>To Date</label>
-              <input type="date" style={inp()} value={fTo} onChange={e=>setFTo(e.target.value)}/>
+              <input type="date" style={inp()} value={tFTo} onChange={e=>setTFTo(e.target.value)}/>
             </div>
           </div>
           <button style={{...btnGh({marginTop:"10px"}),fontSize:"12px",padding:"8px 14px"}}
-            onClick={()=>{setSearch("");setFInstr("All");setFType("All");setFDir("All");setFGrade("All");setFFrom("");setFTo("");}}>
+            onClick={()=>{setTSearch("");setTFInstr("All");setTFType("All");setTFDir("All");setTFGrade("All");setTFFrom("");setTFTo("");}}>
             Clear Filters
           </button>
         </div>
 
-        {/* Stats bar */}
         <div style={{...g4,marginBottom:"14px"}}>
           {[
-            {label:"Showing",   val:filtered.length+" trades",         color:WHT},
-            {label:"Closed P&L",val:fmt(filtPnl),                      color:filtPnl>=0?GR:RD},
-            {label:"Win Rate",  val:filtCl?((filtWins/filtCl)*100).toFixed(1)+"%":"—", color:WHT},
-            {label:"Closed",    val:filtCl+" trades",                   color:MUT},
+            {label:"Showing",    val:filtered.length+" trades",                                          color:WHT},
+            {label:"Closed P&L", val:fmt(filtPnl),                                                      color:filtPnl>=0?GR:RD},
+            {label:"Win Rate",   val:filtCl?((filtWins/filtCl)*100).toFixed(1)+"%":"—",                  color:WHT},
+            {label:"Closed",     val:filtCl+" trades",                                                   color:MUT},
           ].map(x=>(
             <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"10px",padding:"12px",textAlign:"center"}}>
               <div style={{color:x.color,fontSize:"16px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
@@ -686,7 +683,6 @@ export default function App() {
           ))}
         </div>
 
-        {/* Table */}
         <div style={card()}>
           {!filtered.length
             ? <div style={{color:MUT2,textAlign:"center",padding:"32px",fontSize:"13px"}}>No trades match your filters.</div>
@@ -705,7 +701,7 @@ export default function App() {
                         <td style={{padding:"8px 6px",color:MUT,whiteSpace:"nowrap"}}>{t.date}</td>
                         <td style={{padding:"8px 6px",color:WHT,whiteSpace:"nowrap"}}>{t.instrument}</td>
                         <td style={{padding:"8px 6px",color:MUT,whiteSpace:"nowrap"}}>{t.tradeType}</td>
-                        <td style={{padding:"8px 6px",color:t.direction==="Long"?GR:RD,whiteSpace:"nowrap"}}>{t.direction}</td>
+                        <td style={{padding:"8px 6px",color:t.direction==="Long"?GR:RD}}>{t.direction}</td>
                         <td style={{padding:"8px 6px",color:MUT,fontSize:"11px",maxWidth:"120px",overflow:"hidden"}}>{t.setup}</td>
                         <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.entry||"—"}</td>
                         <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.exitPrice||"—"}</td>
@@ -728,6 +724,7 @@ export default function App() {
       </div>
     );
   };
+
 
   const renderAnalytics = () => {
     const data = atab==="intraday" ? intraday : atab==="swing" ? swing : trades;
