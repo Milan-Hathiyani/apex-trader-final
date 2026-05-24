@@ -1,5 +1,11 @@
 import { useState, useEffect } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { createClient } from "@supabase/supabase-js";
+
+const sb = createClient(
+  "https://innfzimqqrlprxkeduyk.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlubmZ6aW1xcXJscHJ4a2VkdXlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2MzU3MDYsImV4cCI6MjA5NTIxMTcwNn0.AwGuyUHZmEj7Rbt_xrbxhD7FUKuVlxZ8gt93Mb9u7nI"
+);
 
 // ── THEME ───────────────────────────────────────────────────
 const BG   = "#000000";
@@ -33,6 +39,58 @@ const nowTime  = () => new Date().toTimeString().slice(0,5);
 const lsGet = (k) => { try { const v=localStorage.getItem(k); return v?JSON.parse(v):null; } catch(e){return null;} };
 const lsSet = (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch(e){} };
 const lsDel = (k) => { try { localStorage.removeItem(k); } catch(e){} };
+
+// ── SUPABASE SYNC ────────────────────────────────────────────
+const sbLoadList = async (table, userName) => {
+  try {
+    const { data, error } = await sb.from(table).select("data").eq("user_name", userName);
+    if (error || !data) return null;
+    return data.map(r => r.data).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  } catch(e) { return null; }
+};
+const sbSaveList = async (table, list, userName) => {
+  try {
+    await sb.from(table).delete().eq("user_name", userName);
+    if (list.length > 0)
+      await sb.from(table).insert(list.map(t=>({id:t.id, user_name:userName, data:t})));
+  } catch(e) { console.warn(`Supabase ${table} sync failed`); }
+};
+const sbLoadSettings = async (userName) => {
+  try {
+    const { data } = await sb.from("settings").select("data").eq("user_name", userName);
+    return data?.[0]?.data || null;
+  } catch(e) { return null; }
+};
+const sbSaveSettings = async (s, userName) => {
+  try { await sb.from("settings").upsert({user_name:userName, data:s}); } catch(e) {}
+};
+const sbLoadCustom = async (userName) => {
+  try {
+    const { data } = await sb.from("customizations").select("*").eq("user_name", userName);
+    return data?.[0] || null;
+  } catch(e) { return null; }
+};
+const sbSaveCustom = async (obj, userName) => {
+  try { await sb.from("customizations").upsert({user_name:userName, ...obj}); } catch(e) {}
+};
+const sbLoadUsers = async () => {
+  try {
+    const { data } = await sb.from("users").select("user_name");
+    return data?.map(r=>r.user_name) || null;
+  } catch(e) { return null; }
+};
+const sbSaveUser = async (name) => {
+  try { await sb.from("users").upsert({user_name:name}); } catch(e) {}
+};
+const sbDeleteUser = async (name) => {
+  try {
+    await sb.from("trades").delete().eq("user_name", name);
+    await sb.from("reviews").delete().eq("user_name", name);
+    await sb.from("settings").delete().eq("user_name", name);
+    await sb.from("customizations").delete().eq("user_name", name);
+    await sb.from("users").delete().eq("user_name", name);
+  } catch(e) {}
+};
 
 const emptyTrade = (instr,type,setup,emo) => ({ date:todayStr(), time:nowTime(), instrument:instr||"", tradeType:type||"Intraday", direction:"Long", setup:setup||"", entry:"", sl:"", exitPrice:"", size:"", riskAmount:"", pnl:"", rrAchieved:"", grade:"A", followedRules:"Yes", emotion:emo||"Calm", mistakes:"", improvements:"", notes:"" });
 const emptyPlan   = (instr) => ({ date:todayStr(), instrument:instr||"", bias:"Bullish", grade:"A", keyLevels:"", setup:"", entryZone:"", sl:"", target1:"", target2:"", invalidation:"", confluences:"", notes:"" });
@@ -112,25 +170,55 @@ export default function App() {
 
   // ── EFFECTS ───────────────────────────────────────────────
   useEffect(() => {
-    const ul = lsGet("top1pct_users") || [];
-    setUserList(ul); setLoaded(true);
-    const onResize = () => setIsMob(window.innerWidth < 640);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    (async () => {
+      const sbUsers = await sbLoadUsers();
+      if (sbUsers !== null) { setUserList(sbUsers); lsSet("top1pct_users", sbUsers); }
+      else { setUserList(lsGet("top1pct_users") || []); }
+      setLoaded(true);
+      const onResize = () => setIsMob(window.innerWidth < 640);
+      window.addEventListener("resize", onResize);
+      return () => window.removeEventListener("resize", onResize);
+    })();
   }, []);
 
   useEffect(() => {
     if (!activeUser) return;
-    setTrades(lsGet(uk("trades")) || []);
-    setReviews(lsGet(uk("reviews")) || []);
-    const s = lsGet(uk("settings"));
-    if (s) { setSettings(s); setDraft(s); setRc(r=>({...r,capital:s.capital})); }
-    else { const ds={...DEFAULT_SETTINGS,traderName:activeUser}; setSettings(ds); setDraft(ds); }
-    const ci=lsGet(uk("instruments")); setInstruments(ci||DEF_INSTRUMENTS);
-    const cs=lsGet(uk("setups"));      setSetups(cs||DEF_SETUPS);
-    const ce=lsGet(uk("emotions"));    setEmotions(ce||DEF_EMOTIONS);
-    const ct=lsGet(uk("tradeTypes"));  setTradeTypes(ct||DEF_TYPES);
-    const cc=lsGet(uk("checks"));      setChecks(cc||DEF_CHECKS);
+    (async () => {
+      // Trades
+      const sbT = await sbLoadList("trades", activeUser);
+      if (sbT !== null) { setTrades(sbT); lsSet(uk("trades"), sbT); }
+      else setTrades(lsGet(uk("trades")) || []);
+
+      // Reviews
+      const sbR = await sbLoadList("reviews", activeUser);
+      if (sbR !== null) { setReviews(sbR); lsSet(uk("reviews"), sbR); }
+      else setReviews(lsGet(uk("reviews")) || []);
+
+      // Settings
+      const sbS = await sbLoadSettings(activeUser);
+      if (sbS) { setSettings(sbS); setDraft(sbS); setRc(r=>({...r,capital:sbS.capital})); lsSet(uk("settings"), sbS); }
+      else {
+        const s = lsGet(uk("settings"));
+        if (s) { setSettings(s); setDraft(s); setRc(r=>({...r,capital:s.capital})); }
+        else { const ds={...DEFAULT_SETTINGS,traderName:activeUser}; setSettings(ds); setDraft(ds); }
+      }
+
+      // Customizations
+      const sbC = await sbLoadCustom(activeUser);
+      if (sbC) {
+        if(sbC.instruments){setInstruments(sbC.instruments);lsSet(uk("instruments"),sbC.instruments);}else setInstruments(lsGet(uk("instruments"))||DEF_INSTRUMENTS);
+        if(sbC.setups){setSetups(sbC.setups);lsSet(uk("setups"),sbC.setups);}else setSetups(lsGet(uk("setups"))||DEF_SETUPS);
+        if(sbC.emotions){setEmotions(sbC.emotions);lsSet(uk("emotions"),sbC.emotions);}else setEmotions(lsGet(uk("emotions"))||DEF_EMOTIONS);
+        if(sbC.trade_types){setTradeTypes(sbC.trade_types);lsSet(uk("tradeTypes"),sbC.trade_types);}else setTradeTypes(lsGet(uk("tradeTypes"))||DEF_TYPES);
+        if(sbC.checks){setChecks(sbC.checks);lsSet(uk("checks"),sbC.checks);}else setChecks(lsGet(uk("checks"))||DEF_CHECKS);
+      } else {
+        setInstruments(lsGet(uk("instruments"))||DEF_INSTRUMENTS);
+        setSetups(lsGet(uk("setups"))||DEF_SETUPS);
+        setEmotions(lsGet(uk("emotions"))||DEF_EMOTIONS);
+        setTradeTypes(lsGet(uk("tradeTypes"))||DEF_TYPES);
+        setChecks(lsGet(uk("checks"))||DEF_CHECKS);
+      }
+    })();
   }, [activeUser]);
 
   useEffect(() => {
@@ -138,16 +226,21 @@ export default function App() {
   }, [instruments, setups, emotions, tradeTypes]);
 
   // ── PERSIST ───────────────────────────────────────────────
-  const pTrades   = (l) => { setTrades(l);   lsSet(uk("trades"),l); };
-  const pReviews  = (l) => { setReviews(l);  lsSet(uk("reviews"),l); };
-  const pSettings = (s) => { setSettings(s); lsSet(uk("settings"),s); };
-  const pList     = (k,v,setter) => { setter(v); lsSet(uk(k),v); };
+  const pTrades   = (l) => { setTrades(l);   lsSet(uk("trades"),l);   sbSaveList("trades",l,activeUser); };
+  const pReviews  = (l) => { setReviews(l);  lsSet(uk("reviews"),l);  sbSaveList("reviews",l,activeUser); };
+  const pSettings = (s) => { setSettings(s); lsSet(uk("settings"),s); sbSaveSettings(s,activeUser); };
+  const pList     = (k,v,setter) => {
+    setter(v); lsSet(uk(k),v);
+    const colMap={instruments:"instruments",setups:"setups",emotions:"emotions",tradeTypes:"trade_types",checks:"checks"};
+    if(colMap[k]) sbSaveCustom({[colMap[k]]:v},activeUser);
+  };
 
   // ── USER MANAGEMENT ───────────────────────────────────────
   const createUser = () => {
     const name=newUserName.trim(); if(!name)return;
     if(userList.includes(name)){alert("Profile already exists.");return;}
     const updated=[...userList,name]; setUserList(updated); lsSet("top1pct_users",updated);
+    sbSaveUser(name);
     setNewUserName(""); setActiveUser(name); setUserScreen(false);
   };
   const loginUser  = (name) => { setActiveUser(name); setUserScreen(false); setTrades([]); setReviews([]); };
@@ -156,6 +249,7 @@ export default function App() {
     if(!window.confirm(`Delete "${name}" and all their data?`))return;
     const updated=userList.filter(u=>u!==name); setUserList(updated); lsSet("top1pct_users",updated);
     ["trades","reviews","settings","instruments","setups","emotions","tradeTypes","checks"].forEach(k=>lsDel(`top1pct_${name}_${k}`));
+    sbDeleteUser(name);
     if(activeUser===name) switchUser();
   };
 
