@@ -333,7 +333,7 @@ export default function App() {
         </div>
         {userList.length>0&&(
           <div style={card({marginBottom:"16px"})}>
-            <div style={h2sty}>Your Profiles</div>
+            <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>your profiles</div>
             {userList.map(u=>(
               <div key={u} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px",borderRadius:"0",background:CARD,border:`1px solid ${BOR}`,marginBottom:"8px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:"12px"}}>
@@ -349,7 +349,7 @@ export default function App() {
           </div>
         )}
         <div style={card()}>
-          <div style={h2sty}>Create Profile</div>
+          <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>create profile</div>
           <div style={{display:"flex",gap:"8px"}}>
             <input type="text" style={inp({flex:1})} placeholder="Enter your name..." value={newUserName} onChange={e=>setNewUserName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createUser()}/>
             <button style={btn({whiteSpace:"nowrap"})} onClick={createUser}>Create</button>
@@ -393,76 +393,129 @@ export default function App() {
   const navTo = (key) => { setTab(key); setShowMore(false); };
 
   // ── DASHBOARD ─────────────────────────────────────────────
-  const renderDashboard = () => (
-    <div>
-      <div style={{marginBottom:"16px",color:MUT,fontSize:"15px"}}>Welcome back, <span style={{color:WHT,fontWeight:"700",fontSize:"17px"}}>{settings.traderName}</span></div>
-      <div style={g4}>
+  const renderDashboard = () => {
+    const LS = '1px solid ' + BOR; // hairline
+    const Sec = ({n, children, right}) => (
+      <div style={{display:"flex",alignItems:"baseline",gap:"14px",marginBottom:"16px",marginTop:"32px"}}>
+        <span style={{color:AMB,fontSize:"11px",letterSpacing:".18em"}}>§{n}</span>
+        <span style={{fontSize:"18px",fontWeight:"300",color:WHT,letterSpacing:"-.01em"}}>{children}</span>
+        <div style={{flex:1,height:"1px",background:BOR,alignSelf:"center",marginLeft:"8px"}}/>
+        {right&&<span style={{color:MUT,fontSize:"10px",textTransform:"uppercase",letterSpacing:".14em"}}>{right}</span>}
+      </div>
+    );
+    return (
+      <div>
+        {/* Hero section */}
+        <div style={{marginBottom:"8px"}}>
+          <div style={{fontSize:"10px",color:AMB,textTransform:"uppercase",letterSpacing:".18em",marginBottom:"16px"}}>daily_overview</div>
+          <div style={{display:"flex",alignItems:"flex-end",gap:M?"20px":"48px",flexWrap:"wrap"}}>
+            <div>
+              <div style={{fontSize:M?"52px":"88px",fontWeight:"200",letterSpacing:"-.04em",lineHeight:1,color:todayPnl>=0?GR:RD,fontFamily:"'JetBrains Mono',monospace"}}>
+                {fmt(todayPnl)}
+              </div>
+              <div style={{color:MUT,fontSize:"13px",marginTop:"12px",lineHeight:1.8}}>
+                <span style={{color:WHT}}>{allSt.total}</span> total trades &nbsp;·&nbsp; win rate <span style={{color:WHT}}>{allSt.winRate}%</span> &nbsp;·&nbsp; profit factor <span style={{color:AMB}}>{allSt.pf}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Metrics strip */}
+        <div style={{borderTop:LS,borderBottom:LS,display:"grid",gridTemplateColumns:M?"1fr 1fr":"repeat(6,1fr)",marginTop:"28px"}}>
+          {[
+            {l:"Net P&L",    v:fmt(allSt.pnl),     c:allSt.pnl>=0?GR:RD},
+            {l:"Win Rate",   v:allSt.winRate+"%",   c:WHT},
+            {l:"Avg R:R",    v:allSt.avgRR,         c:WHT},
+            {l:"Trades",     v:allSt.total,         c:WHT},
+            {l:"Daily Used", v:fmt(Math.abs(todayPnl)),c:Math.abs(todayPnl)>settings.dailyLimit*0.8?RD:MUT},
+            {l:"Weekly P&L", v:fmt(weekPnl),        c:weekPnl>=0?GR:RD},
+          ].map(({l,v,c},i)=>(
+            <div key={l} style={{padding:"20px 22px",borderLeft:i>0?LS:"none"}}>
+              <div style={{fontSize:"9px",textTransform:"uppercase",letterSpacing:".14em",color:MUT,marginBottom:"8px"}}>{l}</div>
+              <div style={{fontSize:"22px",fontWeight:"300",color:c,letterSpacing:"-.01em",fontFamily:"'JetBrains Mono',monospace"}}>{v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Loss limits */}
+        <Sec n="01" right="limits">loss limits</Sec>
         {[
-          {label:"Today P&L",  val:fmt(todayPnl),        color:todayPnl>=0?GR:RD, sub:`Limit: ${fmt(settings.dailyLimit)}`},
-          {label:"Weekly P&L", val:fmt(weekPnl),          color:weekPnl>=0?GR:RD,  sub:`Limit: ${fmt(settings.weeklyLimit)}`},
-          {label:"Win Rate",   val:allSt.winRate+"%",     color:WHT,               sub:`${allSt.total} trades`},
-          {label:"Profit Factor",val:allSt.pf,            color:WHT,               sub:`Avg RR: ${allSt.avgRR}`},
-        ].map(x=>(
-          <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"0",padding:"16px",textAlign:"center"}}>
-            <div style={{color:x.color,fontSize:M?"28px":"48px",fontWeight:"200",fontFamily:"'JetBrains Mono',monospace",letterSpacing:"-.03em"}}>{x.val}</div>
-            <div style={{color:MUT,fontSize:M?"12px":"14px",marginTop:"5px"}}>{x.label}</div>
-            <div style={{color:MUT2,fontSize:M?"11px":"13px",marginTop:"3px"}}>{x.sub}</div>
-          </div>
-        ))}
-      </div>
-      <div style={{...g2,marginTop:"14px"}}>
-        <div style={card()}>
-          <div style={h2sty}>Loss Limits</div>
-          {[{label:"Daily",used:Math.max(0,-todayPnl),limit:settings.dailyLimit},{label:"Weekly",used:Math.max(0,-weekPnl),limit:settings.weeklyLimit}].map(x=>{
-            const pct=Math.min(100,(x.used/x.limit)*100);
-            return(<div key={x.label} style={{marginBottom:"14px"}}>
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:"5px"}}>
-                <span style={{color:MUT,fontSize:"13px"}}>{x.label}</span>
-                <span style={{color:pct>80?RD:WHT,fontSize:"13px",fontFamily:"monospace"}}>{fmt(x.used)} / {fmt(x.limit)}</span>
+          {label:"Daily",  used:Math.max(0,-todayPnl), limit:settings.dailyLimit},
+          {label:"Weekly", used:Math.max(0,-weekPnl),  limit:settings.weeklyLimit},
+        ].map(x=>{
+          const pct=Math.min(100,(x.used/x.limit)*100);
+          return(
+            <div key={x.label} style={{display:"grid",gridTemplateColumns:"70px 1fr 140px",alignItems:"center",gap:"16px",padding:"10px 0",borderBottom:`1px solid ${BOR}`}}>
+              <span style={{fontSize:"12px",color:MUT,textTransform:"uppercase",letterSpacing:".1em"}}>{x.label}</span>
+              <div style={{background:MUT2,height:"2px",position:"relative"}}>
+                <div style={{position:"absolute",top:0,left:0,height:"2px",background:pct>80?RD:AMB,width:`${pct}%`,transition:"width 0.3s"}}/>
               </div>
-              <div style={{background:MUT2,borderRadius:"0",height:"6px"}}>
-                <div style={{background:pct>80?RD:WHT,width:`${pct}%`,height:"6px",borderRadius:"0"}}/>
-              </div>
-            </div>);
-          })}
+              <span style={{fontSize:"12px",fontFamily:"'JetBrains Mono',monospace",color:pct>80?RD:WHT,textAlign:"right"}}>{fmt(x.used)} / {fmt(x.limit)}</span>
+            </div>
+          );
+        })}
+
+        {/* Recent trades */}
+        <Sec n="02" right={`${trades.length} total`}>recent executions</Sec>
+        {!trades.length
+          ? <div style={{color:MUT2,fontSize:"13px",padding:"20px 0"}}>no trades logged yet.</div>
+          : <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
+              <thead>
+                <tr style={{color:MUT,borderBottom:`1px solid ${BOR}`}}>
+                  {["date","instrument","direction","setup","entry","exit","p&l","r:r","grade"].map(h=>(
+                    <th key={h} style={{padding:"6px 0",textAlign:"left",fontWeight:"400",fontSize:"10px",textTransform:"uppercase",letterSpacing:".14em",paddingRight:"16px"}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {trades.slice(0,8).map(t=>(
+                  <tr key={t.id} style={{borderBottom:`1px solid ${BOR}`}}>
+                    <td style={{padding:"9px 16px 9px 0",color:MUT}}>{t.date}</td>
+                    <td style={{padding:"9px 16px 9px 0",color:WHT,fontWeight:"400"}}>{t.instrument}</td>
+                    <td style={{padding:"9px 16px 9px 0",color:t.direction==="Long"?GR:RD}}>{t.direction?.toLowerCase()}</td>
+                    <td style={{padding:"9px 16px 9px 0",color:MUT,maxWidth:"120px",overflow:"hidden"}}>{t.setup}</td>
+                    <td style={{padding:"9px 16px 9px 0",color:MUT}}>{t.entry||"—"}</td>
+                    <td style={{padding:"9px 16px 9px 0",color:MUT}}>{t.exitPrice||"—"}</td>
+                    <td style={{padding:"9px 16px 9px 0",color:parseFloat(t.pnl||0)>=0?GR:RD,fontWeight:"400"}}>{t.pnl?fmt(parseFloat(t.pnl)):"—"}</td>
+                    <td style={{padding:"9px 16px 9px 0",color:parseFloat(t.rrAchieved||0)>0?AMB:MUT}}>{t.rrAchieved||"—"}</td>
+                    <td style={{padding:"9px 0",color:t.grade==="A+"?AMB:MUT}}>{t.grade||"—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>}
+        <div style={{marginTop:"14px",textAlign:"right"}}>
+          <span onClick={()=>setTab("trades")} style={{color:MUT,fontSize:"12px",cursor:"pointer",borderBottom:`1px solid transparent`}}
+            onMouseOver={e=>e.target.style.color=AMB} onMouseOut={e=>e.target.style.color=MUT}>
+            view full journal →
+          </span>
         </div>
-        <div style={card()}>
-          <div style={h2sty}>Quick Stats</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
-            {[{label:"Intraday Win %",val:idSt.winRate+"%"},{label:"Swing Win %",val:swSt.winRate+"%"},{label:"Intraday Trades",val:idSt.total},{label:"Swing Trades",val:swSt.total}].map(x=>(
-              <div key={x.label} style={{background:CARD,borderRadius:"0",padding:"12px"}}>
-                <div style={{color:WHT,fontSize:M?"20px":"28px",fontWeight:"300",fontFamily:"'JetBrains Mono',monospace"}}>{x.val}</div>
-                <div style={{color:MUT,fontSize:M?"12px":"13px",marginTop:"2px"}}>{x.label}</div>
-              </div>
-            ))}
-          </div>
+
+        {/* Quick stats */}
+        <Sec n="03">session breakdown</Sec>
+        <div style={{display:"grid",gridTemplateColumns:M?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:"0",borderTop:`1px solid ${BOR}`,borderBottom:`1px solid ${BOR}`}}>
+          {[
+            {l:"Intraday Win %", v:idSt.winRate+"%"},
+            {l:"Swing Win %",    v:swSt.winRate+"%"},
+            {l:"Intraday Trades",v:idSt.total},
+            {l:"Swing Trades",   v:swSt.total},
+          ].map(({l,v},i)=>(
+            <div key={l} style={{padding:"16px 20px",borderLeft:i>0?`1px solid ${BOR}`:"none"}}>
+              <div style={{fontSize:"9px",textTransform:"uppercase",letterSpacing:".14em",color:MUT,marginBottom:"8px"}}>{l}</div>
+              <div style={{fontSize:"20px",fontWeight:"300",color:WHT,fontFamily:"'JetBrains Mono',monospace"}}>{v}</div>
+            </div>
+          ))}
         </div>
+
       </div>
-      <div style={card()}>
-        <div style={{...h2sty,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>Recent Trades</span><button onClick={()=>exportCSV(trades)} style={btn({padding:"6px 14px",fontSize:"11px"})}>⬇ CSV</button></div>
-        {!trades.length?<div style={{color:MUT2,textAlign:"center",padding:"28px",fontSize:"13px"}}>No trades yet.</div>:
-          <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
-            <thead><tr style={{color:MUT,borderBottom:`1px solid ${BOR}`}}>{["Date","Instrument","Dir","Setup","P&L","Grade"].map(h=><th key={h} style={{padding:"8px 6px",textAlign:"left",fontWeight:"400",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
-            <tbody>{trades.slice(0,6).map(t=>(
-              <tr key={t.id} style={{borderBottom:`1px solid ${CARD}`}}>
-                <td style={{padding:"8px 6px",color:MUT,whiteSpace:"nowrap"}}>{t.date}</td>
-                <td style={{padding:"8px 6px",color:WHT}}>{t.instrument}</td>
-                <td style={{padding:"8px 6px",color:t.direction==="Long"?GR:RD}}>{t.direction}</td>
-                <td style={{padding:"8px 6px",color:MUT,fontSize:"11px"}}>{t.setup}</td>
-                <td style={{padding:"8px 6px",fontFamily:"monospace",fontWeight:"700",color:parseFloat(t.pnl||0)>=0?GR:RD}}>{t.pnl?fmt(parseFloat(t.pnl)):"—"}</td>
-                <td style={{padding:"8px 6px"}}><span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"0",fontSize:"11px"}}>{t.grade||"—"}</span></td>
-              </tr>
-            ))}</tbody>
-          </table></div>}
-      </div>
-    </div>
-  );
+    );
+  };
+
 
   // ── JOURNAL ───────────────────────────────────────────────
   const renderJournal = () => (
     <div>
       <div style={card()}>
-        <div style={h2sty}>Log New Trade</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>log new trade</div>
         {/* Instrument picker — pill buttons on mobile */}
         <div style={{marginBottom:"14px"}}>
           <div style={lbl}>Instrument</div>
@@ -540,7 +593,13 @@ export default function App() {
         <button style={{...btn(),marginTop:"16px",width:"100%",fontSize:"16px",padding:"16px"}} onClick={logTrade}>LOG TRADE</button>
       </div>
       <div style={card()}>
-        <div style={{...h2sty,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>History ({trades.length})</span><button onClick={()=>exportCSV(trades)} style={btn({padding:"6px 14px",fontSize:"11px"})}>⬇ CSV</button></div>
+        <div style={{display:"flex",alignItems:"baseline",gap:"14px",marginBottom:"20px",justifyContent:"space-between"}}>
+          <div style={{display:"flex",alignItems:"baseline",gap:"14px"}}>
+            <span style={{color:AMB,fontSize:"11px",letterSpacing:".18em"}}>§02</span>
+            <span style={{fontSize:"18px",fontWeight:"300",color:WHT,letterSpacing:"-.01em"}}>history · {trades.length}</span>
+          </div>
+          <button onClick={()=>exportCSV(trades)} style={{background:"transparent",color:MUT,border:`1px solid ${BOR}`,padding:"6px 14px",fontSize:"10px",textTransform:"uppercase",letterSpacing:".14em",cursor:"pointer"}}>export.csv</button>
+        </div>
         {!trades.length?<div style={{color:MUT2,textAlign:"center",padding:"28px",fontSize:"13px"}}>No trades logged yet.</div>:
           <div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
             <thead><tr style={{color:MUT,borderBottom:`1px solid ${BOR}`}}>{["Date","Instr","Dir","Setup","Entry","Exit","P&L","RR","Grade",""].map(h=><th key={h} style={{padding:"8px 6px",textAlign:"left",fontWeight:"400",whiteSpace:"nowrap"}}>{h}</th>)}</tr></thead>
@@ -628,7 +687,7 @@ export default function App() {
             {/* Section header */}
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px",gap:"10px",flexWrap:"wrap"}}>
               <div>
-                <div style={h2sty}>{section}</div>
+                <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>{section}</div>
                 <div style={{color:MUT,fontSize:"11px",marginTop:"-8px"}}>Min required: {minReq} / {items.length}</div>
               </div>
               <div style={{textAlign:"right"}}>
@@ -684,7 +743,7 @@ export default function App() {
   const renderRisk = () => (
     <div>
       <div style={card()}>
-        <div style={h2sty}>Position Size Calculator</div>
+        <div style={{display:"flex",alignItems:"baseline",gap:"12px",marginBottom:"20px"}}><span style={{color:AMB,fontSize:"11px",letterSpacing:".18em"}}>§01</span><span style={{fontSize:"18px",fontWeight:"300",color:WHT}}>position size</span></div>
         <div style={g2}>
           <div><label style={lbl}>Capital (₹)</label><input type="number" style={inp()} value={rc.capital} onChange={e=>setRc(r=>({...r,capital:parseFloat(e.target.value)||0}))}/></div>
           <div><label style={lbl}>Target R:R</label><select style={sel()} value={rc.rr} onChange={e=>setRc(r=>({...r,rr:e.target.value}))}>{["1.5","2","2.5","3","4","5"].map(v=><option key={v} value={v}>1:{v}</option>)}</select></div>
@@ -720,7 +779,7 @@ export default function App() {
         )}
       </div>
       <div style={card()}>
-        <div style={h2sty}>SL Management Rules</div>
+        <div style={{display:"flex",alignItems:"baseline",gap:"12px",marginBottom:"16px"}}><span style={{color:AMB,fontSize:"11px",letterSpacing:".18em"}}>§02</span><span style={{fontSize:"16px",fontWeight:"300",color:WHT}}>sl management</span></div>
         <div style={g2}>
           {[{type:"Intraday",rules:["Enter on breakout or retest","Move SL to B/E at 1:1.5 R","Exit at 1:2 R:R",`Max ${settings.maxIntraday} trades/day`]},{type:"Swing / Positional",rules:["Move SL 50% closer at 1:1","Move SL to B/E at 1:2","Scale out at each S/R","Trail final position"]}].map(x=>(
             <div key={x.type} style={{background:CARD,borderRadius:"0",padding:"14px"}}>
@@ -731,7 +790,7 @@ export default function App() {
         </div>
       </div>
       <div style={card()}>
-        <div style={h2sty}>Loss Limits</div>
+        <div style={{display:"flex",alignItems:"baseline",gap:"12px",marginBottom:"16px"}}><span style={{color:AMB,fontSize:"11px",letterSpacing:".18em"}}>§03</span><span style={{fontSize:"16px",fontWeight:"300",color:WHT}}>loss limits</span></div>
         <div style={g3}>
           {[{label:"Daily",val:fmt(settings.dailyLimit)},{label:"Weekly",val:fmt(settings.weeklyLimit)},{label:"Monthly",val:fmt(settings.monthlyLimit)}].map(x=>(
             <div key={x.label} style={{background:CARD,borderRadius:"0",padding:"14px",textAlign:"center"}}>
@@ -748,7 +807,7 @@ export default function App() {
   const renderPlan = () => (
     <div>
       <div style={card()}>
-        <div style={h2sty}>Trade Plan Builder</div>
+        <div style={{display:"flex",alignItems:"baseline",gap:"12px",marginBottom:"20px"}}><span style={{color:AMB,fontSize:"11px",letterSpacing:".18em"}}>§01</span><span style={{fontSize:"18px",fontWeight:"300",color:WHT}}>trade plan</span></div>
         <div style={g2}>
           <div><label style={lbl}>Date</label><input type="date" style={inp()} value={pf.date} onChange={e=>setPf(f=>({...f,date:e.target.value}))}/></div>
           <div><label style={lbl}>Grade</label><select style={sel()} value={pf.grade} onChange={e=>setPf(f=>({...f,grade:e.target.value}))}>{GRADES.map(g=><option key={g}>{g}</option>)}</select></div>
@@ -789,7 +848,7 @@ export default function App() {
         </div>
       </div>
       <div style={card()}>
-        <div style={h2sty}>Rules Quick Reference</div>
+        <div style={{display:"flex",alignItems:"baseline",gap:"12px",marginBottom:"16px"}}><span style={{color:AMB,fontSize:"11px",letterSpacing:".18em"}}>§02</span><span style={{fontSize:"16px",fontWeight:"300",color:WHT}}>rules reference</span></div>
         <div style={g2}>
           {[{title:"Green Light ✅",color:GR,items:["Daily + TF aligned","Pattern obvious",`Min 1:${settings.minRR} R:R`,"Clear S/R level","SL behind structure"]},{title:"Red Flags 🚫",color:RD,items:["No clear structure","FOMO trade","SL too wide","Loss limit hit","Emotionally off"]}].map(x=>(
             <div key={x.title} style={{background:CARD,borderRadius:"0",padding:"14px"}}>
@@ -829,7 +888,7 @@ export default function App() {
     return (
       <div>
         <div style={card()}>
-          <div style={h2sty}>All Trades</div>
+          <div style={{display:"flex",alignItems:"baseline",gap:"12px",marginBottom:"20px"}}><span style={{color:AMB,fontSize:"11px",letterSpacing:".18em"}}>§01</span><span style={{fontSize:"18px",fontWeight:"300",color:WHT}}>all trades</span></div>
           <input type="text" style={{...inp(),marginBottom:"10px"}} placeholder="Search instrument, setup, notes..." value={tSearch} onChange={e=>setTSearch(e.target.value)}/>
           <div style={g2}>
             <div>
@@ -954,26 +1013,26 @@ export default function App() {
         ))}
       </div>
       <div style={{...card(),marginTop:"14px"}}>
-        <div style={h2sty}>P&L Curve</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>p&l curve</div>
         {curve.length>0?<ResponsiveContainer width="100%" height={200}><LineChart data={curve}><XAxis dataKey="n" stroke={MUT2} tick={{fill:MUT,fontSize:10}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:10}} tickFormatter={v=>fmt(v)}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"Cumulative P&L"]}/><Line type="monotone" dataKey="v" stroke={WHT} strokeWidth={2} dot={false}/></LineChart></ResponsiveContainer>:noData}
       </div>
       <div style={g2}>
         <div style={card()}>
-          <div style={h2sty}>By Instrument</div>
+          <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>by instrument</div>
           {iData.length>0?<ResponsiveContainer width="100%" height={190}><BarChart data={iData} margin={{left:10}}><XAxis dataKey="name" stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"P&L"]}/><Bar dataKey="v" radius={[3,3,0,0]}>{iData.map((d,i)=><Cell key={i} fill={d.v>=0?GR:RD}/>)}</Bar></BarChart></ResponsiveContainer>:noData}
         </div>
         <div style={card()}>
-          <div style={h2sty}>By Grade</div>
+          <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>by grade</div>
           {gData.some(d=>d.n>0)?<ResponsiveContainer width="100%" height={190}><BarChart data={gData} margin={{left:10}}><XAxis dataKey="g" stroke={MUT2} tick={{fill:MUT,fontSize:12}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"P&L"]}/><Bar dataKey="v" radius={[3,3,0,0]}>{gData.map((d,i)=><Cell key={i} fill={d.v>=0?GR:RD}/>)}</Bar></BarChart></ResponsiveContainer>:noData}
         </div>
       </div>
       <div style={g2}>
         <div style={card()}>
-          <div style={h2sty}>Emotion vs P&L</div>
+          <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>emotion vs p&l</div>
           {eData.length>0?<ResponsiveContainer width="100%" height={190}><BarChart data={eData} margin={{left:10}}><XAxis dataKey="e" stroke={MUT2} tick={{fill:MUT,fontSize:10}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"P&L"]}/><Bar dataKey="v" radius={[3,3,0,0]}>{eData.map((d,i)=><Cell key={i} fill={d.v>=0?GR:RD}/>)}</Bar></BarChart></ResponsiveContainer>:noData}
         </div>
         <div style={card()}>
-          <div style={h2sty}>Best & Worst Setups</div>
+          <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>setups</div>
           {sData.length>0?<div style={{overflowY:"auto",maxHeight:"210px"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}><thead><tr style={{color:MUT,borderBottom:`1px solid ${BOR}`}}>{["Setup","N","P&L"].map(h=><th key={h} style={{padding:"6px 8px",textAlign:"left",fontWeight:"400"}}>{h}</th>)}</tr></thead><tbody>{sData.map(d=><tr key={d.s} style={{borderBottom:`1px solid ${CARD}`}}><td style={{padding:"6px 8px",color:MUT,fontSize:"11px"}}>{d.s}</td><td style={{padding:"6px 8px",color:MUT}}>{d.n}</td><td style={{padding:"6px 8px",fontFamily:"monospace",fontWeight:"700",color:d.v>=0?GR:RD}}>{fmt(d.v)}</td></tr>)}</tbody></table></div>:noData}
         </div>
       </div>
@@ -992,7 +1051,7 @@ export default function App() {
         ))}
       </div>
       <div style={card()}>
-        <div style={h2sty}>Write {rtab.charAt(0).toUpperCase()+rtab.slice(1)} Review</div>
+        <div style={{fontSize:"16px",fontWeight:"300",color:WHT,marginBottom:"18px",letterSpacing:"-.01em"}}>write {rtab} review</div>
         <div style={g2}>
           <div><label style={lbl}>Date</label><input type="date" style={inp()} value={rf.date} onChange={e=>setRf(f=>({...f,date:e.target.value}))}/></div>
           <div>
@@ -1039,7 +1098,7 @@ export default function App() {
       )}
       {reviews.length>=3&&(
         <div style={card()}>
-          <div style={h2sty}>Mental State Trend</div>
+          <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>mental state trend</div>
           <div style={{display:"flex",gap:"6px",flexWrap:"wrap"}}>
             {reviews.slice(0,20).reverse().map(r=>(
               <div key={r.id} style={{textAlign:"center"}}>
@@ -1063,7 +1122,7 @@ export default function App() {
       return(
         <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}}>
-            <div style={h2sty}>{title}</div>
+            <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>{title}</div>
             <button onClick={()=>pList(storeKey,resetVal,setter)} style={btnGh({padding:"6px 12px",fontSize:"11px"})}>Reset</button>
           </div>
           {hint&&<div style={{color:MUT2,fontSize:"11px",marginBottom:"12px"}}>{hint}</div>}
@@ -1092,7 +1151,7 @@ export default function App() {
       return(
         <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}}>
-            <div style={h2sty}>✅ Pre-Trade Checklist</div>
+            <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>✅ pre-trade checklist</div>
             <button onClick={()=>{pList("checks",DEF_CHECKS,setChecks);setCk({});}} style={btnGh({padding:"6px 12px",fontSize:"11px"})}>Reset</button>
           </div>
           {Object.entries(checks).map(([section,items])=>(
@@ -1126,14 +1185,14 @@ export default function App() {
     return(
       <div>
         <div style={{...card(),textAlign:"center",padding:"14px"}}>
-          <div style={{color:WHT,fontSize:"13px",fontWeight:"700"}}>Customize Your System</div>
+          <div style={{fontSize:"18px",fontWeight:"300",color:WHT,letterSpacing:"-.01em"}}>customize system</div>
           <div style={{color:MUT,fontSize:"12px",marginTop:"4px"}}>Changes apply instantly across the entire app</div>
         </div>
 
         {/* Tab Order */}
         <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"14px"}}>
-            <div style={h2sty}>Tab Order</div>
+            <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"12px"}}>tab order</div>
             <button onClick={resetTabOrder} style={btnGh({padding:"6px 12px",fontSize:"11px"})}>Reset</button>
           </div>
           <div style={{color:MUT2,fontSize:"11px",marginBottom:"12px"}}>First 4 tabs appear in the bottom bar on mobile. Drag order determines what you see first.</div>
@@ -1175,7 +1234,7 @@ export default function App() {
 
       {/* Text Size */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
-        <div style={h2sty}>🔠 Text Size</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>text size</div>
         <div style={{color:MUT,fontSize:"12px",marginBottom:"14px"}}>Scales all text and UI elements across the entire app. Takes effect immediately — no need to save.</div>
         <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
           {scales.map(s=>(
@@ -1193,7 +1252,7 @@ export default function App() {
 
       {/* Profile */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
-        <div style={h2sty}>👤 Profile</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>profile</div>
         <div style={g2}>
           <div><label style={lbl}>Trader Name</label><input type="text" style={inp()} value={draft.traderName} onChange={e=>setDraft(d=>({...d,traderName:e.target.value}))}/></div>
           <div style={{display:"flex",alignItems:"center"}}>
@@ -1206,7 +1265,7 @@ export default function App() {
       </div>
       {/* Capital */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
-        <div style={h2sty}>💰 Capital & Risk</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>capital & risk</div>
         <div style={g2}>{nf("Total Capital (₹)","capital",1000)}</div>
         <div style={{...g3,marginTop:"10px"}}>
           {nf("Base Risk %","baseRisk",0.01)}
@@ -1224,18 +1283,18 @@ export default function App() {
       </div>
       {/* Loss Limits */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
-        <div style={h2sty}>🚨 Loss Limits</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>loss limits</div>
         <div style={g3}>{nf("Daily Max (₹)","dailyLimit",500)}{nf("Weekly Max (₹)","weeklyLimit",1000)}{nf("Monthly Max (₹)","monthlyLimit",5000)}</div>
       </div>
       {/* Trade Rules */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
-        <div style={h2sty}>📋 Trade Rules</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>trade rules</div>
         <div style={g2}>{nf("Max Intraday Trades/Day","maxIntraday",1)}{nf("Minimum R:R","minRR",0.5)}</div>
       </div>
       {/* Checklist Requirements */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"}}>
-          <div style={h2sty}>✅ Checklist Requirements</div>
+          <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>checklist requirements</div>
           <button onClick={()=>{setSectionMins({});lsSet(uk("sectionMins"),{});}} style={btnGh({padding:"6px 12px",fontSize:"11px"})}>Reset All</button>
         </div>
         <div style={{color:MUT,fontSize:"12px",marginBottom:"14px"}}>Set the minimum number of items you must tick in each section before you can trade. Leave at max to require all.</div>
@@ -1308,7 +1367,7 @@ export default function App() {
 
       {/* Import */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
-        <div style={h2sty}>📥 Import Trades</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>import trades</div>
         <div style={{color:MUT,fontSize:"12px",marginBottom:"12px"}}>Import your Zerodha tradebook JSON. Duplicate trades are automatically skipped.</div>
         <label style={{display:"block",background:CARD,border:`2px dashed ${BOR}`,borderRadius:"0",padding:"20px",textAlign:"center",cursor:"pointer"}}>
           <div style={{color:WHT,fontSize:"14px",fontWeight:"700",marginBottom:"4px"}}>📁 Choose JSON file</div>
@@ -1318,7 +1377,7 @@ export default function App() {
       </div>
       {/* Export */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
-        <div style={h2sty}>📤 Export Data</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>export data</div>
         <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
           <button onClick={()=>exportCSV(trades)} style={{...btn(),flex:1}}>⬇ Trades CSV ({trades.length})</button>
           <button onClick={()=>exportReviewsCSV(reviews)} style={{...btn(),flex:1}}>⬇ Reviews CSV ({reviews.length})</button>
@@ -1326,7 +1385,7 @@ export default function App() {
       </div>
       {/* Profiles */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
-        <div style={h2sty}>👥 All Profiles</div>
+        <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>all profiles</div>
         <div style={{display:"flex",gap:"8px",flexWrap:"wrap",marginBottom:"14px"}}>
           {userList.map(u=>(
             <div key={u} style={{display:"flex",alignItems:"center",gap:"8px",background:CARD,borderRadius:"0",padding:"10px 14px",border:`1px solid ${u===activeUser?WHT:BOR}`}}>
@@ -1385,64 +1444,95 @@ export default function App() {
   );
 
   // ── ROOT ──────────────────────────────────────────────────
-  return (
-    <div style={{background:BG,minHeight:"100vh",color:WHT,fontFamily:"'JetBrains Mono', ui-monospace, monospace",fontWeight:300,zoom:settings.textScale||1}}>
+  const tabIdx = ALL_TABS.findIndex(t=>t.key===tab);
 
-      {/* DESKTOP TOP NAV */}
+  return (
+    <div style={{background:BG,minHeight:"100vh",color:WHT,fontFamily:"'JetBrains Mono',ui-monospace,monospace",fontWeight:300,zoom:settings.textScale||1}}>
+
+      {/* ── DESKTOP: SIDEBAR + CONTENT ── */}
       {!M && (
-        <div style={{background:SURF,borderBottom:`1px solid ${BOR}`,padding:"12px 20px",display:"flex",alignItems:"center",gap:"16px",flexWrap:"wrap",position:"sticky",top:0,zIndex:50}}>
-          <div style={{color:WHT,fontFamily:"'JetBrains Mono',monospace",fontSize:"13px",fontWeight:"200",letterSpacing:".02em",whiteSpace:"nowrap"}}>top_1%/ledger</div>
-          <div style={{display:"flex",gap:"4px",flexWrap:"wrap",flex:1}}>
-            {ALL_TABS.map(t=>(
-              <button key={t.key} onClick={()=>setTab(t.key)}
-                style={{background:tab===t.key?AMB:"transparent",color:tab===t.key?BG:MUT,border:`1px solid ${tab===t.key?WHT:BOR}`,padding:"6px 14px",borderRadius:"0",cursor:"pointer",fontSize:"12px",fontWeight:tab===t.key?"700":"400"}}>
-                {t.label}
+        <div style={{display:"grid",gridTemplateColumns:"220px 1fr",minHeight:"100vh"}}>
+
+          {/* SIDEBAR */}
+          <aside style={{borderRight:`1px solid ${BOR}`,padding:"36px 28px 24px",display:"flex",flexDirection:"column",background:BG,position:"sticky",top:0,height:"100vh",overflow:"auto"}}>
+            {/* Brand */}
+            <div>
+              <div style={{fontSize:"10px",color:AMB,textTransform:"uppercase",letterSpacing:".18em"}}>top_one_percent</div>
+              <div style={{fontSize:"30px",fontWeight:"200",letterSpacing:"-.02em",marginTop:"10px",lineHeight:1,color:WHT}}>./ledger</div>
+              <div style={{color:MUT,fontSize:"12px",marginTop:"12px",lineHeight:1.7}}>A trader's log,<br/>kept honestly.</div>
+            </div>
+
+            {/* Nav */}
+            <nav style={{marginTop:"40px",flex:1}}>
+              {ALL_TABS.map((t,i)=>(
+                <div key={t.key} onClick={()=>setTab(t.key)}
+                  style={{display:"flex",gap:"14px",alignItems:"baseline",padding:"9px 0",cursor:"pointer",
+                          color:tab===t.key?AMB:MUT,borderBottom:`1px solid ${tab===t.key?MUT2:BOR}`}}>
+                  <span style={{color:tab===t.key?AMB:MUT2,fontSize:"10px"}}>{String(i+1).padStart(2,"0")}</span>
+                  <span style={{fontSize:"13px"}}>{t.label.toLowerCase()}</span>
+                  {tab===t.key&&<span style={{marginLeft:"auto",color:AMB,fontSize:"10px"}}>◀</span>}
+                </div>
+              ))}
+            </nav>
+
+            {/* Session info */}
+            <div style={{marginTop:"24px",paddingTop:"20px",borderTop:`1px solid ${BOR}`}}>
+              <div style={{fontSize:"9px",textTransform:"uppercase",letterSpacing:".18em",color:MUT,marginBottom:"10px"}}>session</div>
+              <div style={{fontSize:"12px",color:MUT,lineHeight:2}}>
+                <div>acct &nbsp;&nbsp;<span style={{color:WHT}}>{settings.traderName}</span></div>
+                <div>cap &nbsp;&nbsp;&nbsp;<span style={{color:WHT}}>{fmt(settings.capital)}</span></div>
+                <div>today &nbsp;<span style={{color:todayPnl>=0?GR:RD}}>{fmt(todayPnl)}</span></div>
+                <div style={{fontSize:"10px",color:MUT2,marginTop:"6px"}}>{new Date().toISOString().slice(0,10)}</div>
+              </div>
+              <button onClick={switchUser} style={{marginTop:"14px",background:"transparent",color:MUT2,border:`1px solid ${BOR}`,padding:"6px 12px",fontSize:"10px",textTransform:"uppercase",letterSpacing:".14em",cursor:"pointer",width:"100%"}}>switch profile</button>
+            </div>
+          </aside>
+
+          {/* MAIN CONTENT */}
+          <main style={{padding:"40px 52px 60px",overflowY:"auto"}}>
+            {/* Breadcrumb */}
+            <div style={{fontSize:"10px",color:MUT2,letterSpacing:".2em",marginBottom:"32px"}}>
+              ./ {tab} &nbsp;·&nbsp; screen {String(tabIdx+1).padStart(2,"0")} of {String(ALL_TABS.length).padStart(2,"0")}
+            </div>
+            {renderTab()}
+          </main>
+        </div>
+      )}
+
+      {/* ── MOBILE: TOP BAR + CONTENT + BOTTOM NAV ── */}
+      {M && (
+        <>
+          <div style={{background:SURF,borderBottom:`1px solid ${BOR}`,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
+            <div style={{color:WHT,fontSize:"13px",fontWeight:"200",letterSpacing:".02em"}}>top_1%</div>
+            <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
+              <span style={{color:MUT,fontSize:"11px"}}>{settings.traderName}</span>
+              <button onClick={switchUser} style={{background:"transparent",color:MUT2,border:`1px solid ${BOR}`,padding:"4px 10px",fontSize:"10px",textTransform:"uppercase",letterSpacing:".12em",cursor:"pointer"}}>⇄</button>
+            </div>
+          </div>
+
+          <div style={{padding:"16px",paddingBottom:"90px"}}>
+            {renderTab()}
+          </div>
+
+          {M && showMore && <MoreOverlay/>}
+
+          <div style={{position:"fixed",bottom:0,left:0,right:0,background:BG,borderTop:`1px solid ${BOR}`,display:"flex",zIndex:99,paddingBottom:"env(safe-area-inset-bottom)"}}>
+            {BOT_TABS.map(t=>(
+              <button key={t.key} onClick={()=>{navTo(t.key);setShowMore(false);}}
+                style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",padding:"10px 0",background:"transparent",border:"none",cursor:"pointer",
+                        color:tab===t.key?AMB:MUT,minHeight:"60px",fontFamily:"inherit"}}>
+                <span style={{fontSize:"18px",lineHeight:1}}>{t.icon}</span>
+                <span style={{fontSize:"9px",textTransform:"uppercase",letterSpacing:".1em"}}>{t.label}</span>
               </button>
             ))}
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
-            <div style={{width:"28px",height:"28px",borderRadius:"50%",background:MUT2,border:`1px solid ${BOR}`,display:"flex",alignItems:"center",justifyContent:"center",color:WHT,fontWeight:"700",fontSize:"12px"}}>{activeUser.charAt(0).toUpperCase()}</div>
-            <span style={{color:MUT,fontSize:"12px"}}>{activeUser}</span>
-            <button onClick={switchUser} style={{background:"transparent",color:MUT,border:`1px solid ${BOR}`,padding:"4px 10px",borderRadius:"0",cursor:"pointer",fontSize:"11px"}}>Switch</button>
-          </div>
-        </div>
-      )}
-
-      {/* MOBILE TOP BAR */}
-      {M && (
-        <div style={{background:SURF,borderBottom:`1px solid ${BOR}`,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
-          <div style={{color:WHT,fontFamily:"'JetBrains Mono',monospace",fontSize:"13px",fontWeight:"200",letterSpacing:".02em"}}>top_1%</div>
-          <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
-            <span style={{color:MUT,fontSize:"12px"}}>{settings.traderName}</span>
-            <div style={{width:"30px",height:"30px",borderRadius:"50%",background:MUT2,border:`1px solid ${BOR}`,display:"flex",alignItems:"center",justifyContent:"center",color:WHT,fontWeight:"700",fontSize:"13px"}}>{activeUser.charAt(0).toUpperCase()}</div>
-          </div>
-        </div>
-      )}
-
-      {/* PAGE CONTENT */}
-      <div style={{padding:M?"12px":"20px",maxWidth:M?"100%":"1100px",margin:"0 auto",paddingBottom:M?"90px":"20px"}}>
-        {renderTab()}
-      </div>
-
-      {/* MORE OVERLAY */}
-      {M && showMore && <MoreOverlay/>}
-
-      {/* MOBILE BOTTOM NAV */}
-      {M && (
-        <div style={{position:"fixed",bottom:0,left:0,right:0,background:SURF,borderTop:`1px solid ${BOR}`,display:"flex",zIndex:99,paddingBottom:"env(safe-area-inset-bottom)"}}>
-          {BOT_TABS.map(t=>(
-            <button key={t.key} onClick={()=>{navTo(t.key);setShowMore(false);}}
-              style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",padding:"10px 0",background:"transparent",border:"none",cursor:"pointer",color:tab===t.key?WHT:MUT,minHeight:"60px"}}>
-              <span style={{fontSize:"20px",lineHeight:1}}>{t.icon}</span>
-              <span style={{fontSize:"9px",fontWeight:tab===t.key?"700":"400"}}>{t.label}</span>
+            <button onClick={()=>setShowMore(s=>!s)}
+              style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",padding:"10px 0",background:"transparent",border:"none",cursor:"pointer",
+                      color:showMore||MORE_TABS.some(t=>t.key===tab)?AMB:MUT,minHeight:"60px",fontFamily:"inherit"}}>
+              <span style={{fontSize:"18px",lineHeight:1}}>⋯</span>
+              <span style={{fontSize:"9px",textTransform:"uppercase",letterSpacing:".1em"}}>More</span>
             </button>
-          ))}
-          <button onClick={()=>setShowMore(s=>!s)}
-            style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",padding:"10px 0",background:"transparent",border:"none",cursor:"pointer",color:showMore||MORE_TABS.some(t=>t.key===tab)?AMB:MUT,minHeight:"60px"}}>
-            <span style={{fontSize:"20px",lineHeight:1}}>⋯</span>
-            <span style={{fontSize:"9px",fontWeight:showMore?"700":"400"}}>More</span>
-          </button>
-        </div>
+          </div>
+        </>
       )}
 
     </div>
