@@ -7,12 +7,35 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Top 1%" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#0a0a0a" />
     <link rel="manifest" href="/manifest.json" />
-    <title>Top 1%</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@200;300;400;500;700&display=swap" rel="stylesheet" />
+    <title>Top 1% / Ledger</title>
     <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      body { background: #000000; -webkit-tap-highlight-color: transparent; }
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; background: #0a0a0a; }
+      body {
+        font-family: 'JetBrains Mono', ui-monospace, monospace;
+        font-weight: 300;
+        font-variant-numeric: tabular-nums;
+        -webkit-font-smoothing: antialiased;
+        -webkit-tap-highlight-color: transparent;
+      }
+      /* Ledger scrollbar */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-thumb { background: #2a2620; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      /* Ledger inputs globally */
+      input, select, textarea {
+        font-family: 'JetBrains Mono', monospace;
+        font-weight: 300;
+      }
+      /* Ledger select arrow */
+      select { appearance: none; -webkit-appearance: none; }
+      /* Range sliders */
+      input[type=range] { accent-color: #d4a747; }
     </style>
   </head>
   <body>

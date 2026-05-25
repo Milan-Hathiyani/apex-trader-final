@@ -7,16 +7,18 @@ const sb = createClient(
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlubmZ6aW1xcXJscHJ4a2VkdXlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk2MzU3MDYsImV4cCI6MjA5NTIxMTcwNn0.AwGuyUHZmEj7Rbt_xrbxhD7FUKuVlxZ8gt93Mb9u7nI"
 );
 
-// ── THEME ───────────────────────────────────────────────────
-const BG   = "#000000";
-const SURF = "#0a0a0a";
-const CARD = "#111111";
-const BOR  = "#1c1c1c";
-const WHT  = "#ffffff";
-const GR   = "#10b981";
-const RD   = "#ef4444";
-const MUT  = "#555555";
-const MUT2 = "#333333";
+// ── THEME — LEDGER ──────────────────────────────────────────
+// Monochrome terminal. JetBrains Mono. Bone-on-black, single amber accent.
+const BG   = "#0a0a0a";
+const SURF = "#101010";
+const CARD = "#141414";
+const BOR  = "#2a2620";
+const WHT  = "#e3dccb";   // bone — primary text
+const AMB  = "#d4a747";   // amber — sole accent
+const GR   = "#6b9e6b";   // muted green — positive P&L only
+const RD   = "#a85a52";   // muted warm red — negative P&L only
+const MUT  = "#8a8270";   // dim
+const MUT2 = "#4a4538";   // dim2
 
 // ── DEFAULT DATA ─────────────────────────────────────────────
 const DEF_INSTRUMENTS = ["XAU/USD","NASDAQ","Silver","USOIL","Nifty","Bitcoin"];
@@ -113,18 +115,19 @@ const exportReviewsCSV = (reviews) => {
 };
 
 // ── SHARED STYLE BUILDERS ────────────────────────────────────
-const card  = (extra={}) => ({ background:SURF, border:`1px solid ${BOR}`, borderRadius:"12px", padding:"16px", marginBottom:"14px", ...extra });
-const inp   = (extra={}) => ({ background:CARD, border:`1px solid ${BOR}`, color:WHT, padding:"12px 14px", borderRadius:"10px", width:"100%", fontSize:"15px", boxSizing:"border-box", minHeight:"44px", ...extra });
-const sel   = (extra={}) => ({ background:CARD, border:`1px solid ${BOR}`, color:WHT, padding:"12px 14px", borderRadius:"10px", width:"100%", fontSize:"15px", boxSizing:"border-box", minHeight:"44px", ...extra });
-const ta    = (extra={}) => ({ background:CARD, border:`1px solid ${BOR}`, color:WHT, padding:"12px 14px", borderRadius:"10px", width:"100%", fontSize:"14px", boxSizing:"border-box", resize:"vertical", minHeight:"80px", ...extra });
-const lbl   = { color:MUT, fontSize:"11px", display:"block", marginBottom:"5px", textTransform:"uppercase", letterSpacing:"0.5px" };
-const h2sty = { color:WHT, fontSize:"12px", fontWeight:"700", letterSpacing:"1px", marginBottom:"14px", textTransform:"uppercase" };
-const btn   = (extra={}) => ({ background:WHT, color:BG, border:"none", padding:"12px 22px", borderRadius:"10px", cursor:"pointer", fontWeight:"700", fontSize:"14px", minHeight:"44px", ...extra });
-const btnGh = (extra={}) => ({ background:"transparent", color:MUT, border:`1px solid ${BOR}`, padding:"12px 22px", borderRadius:"10px", cursor:"pointer", fontSize:"14px", minHeight:"44px", ...extra });
-const ttSty  = { background:CARD, border:`1px solid ${BOR}`, color:WHT, fontSize:"12px" };
-const ttLabel= { color:WHT, fontSize:"12px" };
-const ttItem = { color:WHT, fontSize:"12px" };
-const mentalColor = (m) => ["Excellent","Good"].includes(m) ? GR : m==="Neutral" ? WHT : RD;
+// Ledger style builders — hairline borders, no radius, monospace
+const card  = (extra={}) => ({ background:SURF, borderTop:`1px solid ${BOR}`, borderBottom:`1px solid ${BOR}`, borderLeft:"none", borderRight:"none", borderRadius:"0", padding:"18px 0", marginBottom:"20px", ...extra });
+const inp   = (extra={}) => ({ background:"transparent", border:"none", borderBottom:`1px solid ${MUT2}`, color:WHT, padding:"8px 0", borderRadius:"0", width:"100%", fontSize:"14px", boxSizing:"border-box", minHeight:"44px", outline:"none", ...extra });
+const sel   = (extra={}) => ({ background:BG, border:`1px solid ${MUT2}`, color:WHT, padding:"8px 10px", borderRadius:"0", width:"100%", fontSize:"13px", boxSizing:"border-box", minHeight:"44px", ...extra });
+const ta    = (extra={}) => ({ background:CARD, border:`1px solid ${BOR}`, color:WHT, padding:"12px 14px", borderRadius:"0", width:"100%", fontSize:"13px", boxSizing:"border-box", resize:"vertical", minHeight:"80px", lineHeight:"1.65", ...extra });
+const lbl   = { color:MUT, fontSize:"10px", display:"block", marginBottom:"6px", textTransform:"uppercase", letterSpacing:"0.18em" };
+const h2sty = { color:AMB, fontSize:"10px", fontWeight:"400", letterSpacing:"0.18em", marginBottom:"16px", textTransform:"uppercase" };
+const btn   = (extra={}) => ({ background:AMB, color:BG, border:`1px solid ${AMB}`, padding:"10px 22px", borderRadius:"0", cursor:"pointer", fontWeight:"500", fontSize:"11px", textTransform:"uppercase", letterSpacing:"0.16em", minHeight:"44px", ...extra });
+const btnGh = (extra={}) => ({ background:"transparent", color:WHT, border:`1px solid ${MUT2}`, padding:"10px 22px", borderRadius:"0", cursor:"pointer", fontSize:"11px", textTransform:"uppercase", letterSpacing:"0.16em", minHeight:"44px", ...extra });
+const ttSty  = { background:CARD, border:`1px solid ${BOR}`, color:WHT, fontSize:"11px", fontFamily:"'JetBrains Mono', monospace" };
+const ttLabel= { color:WHT, fontSize:"11px" };
+const ttItem = { color:WHT, fontSize:"11px" };
+const mentalColor = (m) => ["Excellent","Good"].includes(m) ? GR : m==="Neutral" ? AMB : RD;
 
 export default function App() {
   // ── STATE ─────────────────────────────────────────────────
@@ -332,14 +335,14 @@ export default function App() {
           <div style={card({marginBottom:"16px"})}>
             <div style={h2sty}>Your Profiles</div>
             {userList.map(u=>(
-              <div key={u} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px",borderRadius:"10px",background:CARD,border:`1px solid ${BOR}`,marginBottom:"8px"}}>
+              <div key={u} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"12px",borderRadius:"0",background:CARD,border:`1px solid ${BOR}`,marginBottom:"8px"}}>
                 <div style={{display:"flex",alignItems:"center",gap:"12px"}}>
                   <div style={{width:"38px",height:"38px",borderRadius:"50%",background:MUT2,border:`1px solid ${BOR}`,display:"flex",alignItems:"center",justifyContent:"center",color:WHT,fontWeight:"700",fontSize:"15px"}}>{u.charAt(0).toUpperCase()}</div>
                   <span style={{color:WHT,fontSize:"15px"}}>{u}</span>
                 </div>
                 <div style={{display:"flex",gap:"8px"}}>
                   <button onClick={()=>loginUser(u)} style={btn({padding:"8px 18px",fontSize:"13px"})}>Login</button>
-                  <button onClick={()=>deleteUser(u)} style={{background:"transparent",color:RD,border:`1px solid ${RD}`,padding:"8px 12px",borderRadius:"8px",cursor:"pointer",fontSize:"13px",minHeight:"44px"}}>Del</button>
+                  <button onClick={()=>deleteUser(u)} style={{background:"transparent",color:RD,border:`1px solid ${RD}`,padding:"8px 12px",borderRadius:"0",cursor:"pointer",fontSize:"13px",minHeight:"44px"}}>Del</button>
                 </div>
               </div>
             ))}
@@ -400,8 +403,8 @@ export default function App() {
           {label:"Win Rate",   val:allSt.winRate+"%",     color:WHT,               sub:`${allSt.total} trades`},
           {label:"Profit Factor",val:allSt.pf,            color:WHT,               sub:`Avg RR: ${allSt.avgRR}`},
         ].map(x=>(
-          <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"12px",padding:"16px",textAlign:"center"}}>
-            <div style={{color:x.color,fontSize:M?"26px":"40px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
+          <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"0",padding:"16px",textAlign:"center"}}>
+            <div style={{color:x.color,fontSize:M?"28px":"48px",fontWeight:"200",fontFamily:"'JetBrains Mono',monospace",letterSpacing:"-.03em"}}>{x.val}</div>
             <div style={{color:MUT,fontSize:M?"12px":"14px",marginTop:"5px"}}>{x.label}</div>
             <div style={{color:MUT2,fontSize:M?"11px":"13px",marginTop:"3px"}}>{x.sub}</div>
           </div>
@@ -417,8 +420,8 @@ export default function App() {
                 <span style={{color:MUT,fontSize:"13px"}}>{x.label}</span>
                 <span style={{color:pct>80?RD:WHT,fontSize:"13px",fontFamily:"monospace"}}>{fmt(x.used)} / {fmt(x.limit)}</span>
               </div>
-              <div style={{background:MUT2,borderRadius:"4px",height:"6px"}}>
-                <div style={{background:pct>80?RD:WHT,width:`${pct}%`,height:"6px",borderRadius:"4px"}}/>
+              <div style={{background:MUT2,borderRadius:"0",height:"6px"}}>
+                <div style={{background:pct>80?RD:WHT,width:`${pct}%`,height:"6px",borderRadius:"0"}}/>
               </div>
             </div>);
           })}
@@ -427,8 +430,8 @@ export default function App() {
           <div style={h2sty}>Quick Stats</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
             {[{label:"Intraday Win %",val:idSt.winRate+"%"},{label:"Swing Win %",val:swSt.winRate+"%"},{label:"Intraday Trades",val:idSt.total},{label:"Swing Trades",val:swSt.total}].map(x=>(
-              <div key={x.label} style={{background:CARD,borderRadius:"10px",padding:"12px"}}>
-                <div style={{color:WHT,fontSize:M?"20px":"28px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
+              <div key={x.label} style={{background:CARD,borderRadius:"0",padding:"12px"}}>
+                <div style={{color:WHT,fontSize:M?"20px":"28px",fontWeight:"300",fontFamily:"'JetBrains Mono',monospace"}}>{x.val}</div>
                 <div style={{color:MUT,fontSize:M?"12px":"13px",marginTop:"2px"}}>{x.label}</div>
               </div>
             ))}
@@ -447,7 +450,7 @@ export default function App() {
                 <td style={{padding:"8px 6px",color:t.direction==="Long"?GR:RD}}>{t.direction}</td>
                 <td style={{padding:"8px 6px",color:MUT,fontSize:"11px"}}>{t.setup}</td>
                 <td style={{padding:"8px 6px",fontFamily:"monospace",fontWeight:"700",color:parseFloat(t.pnl||0)>=0?GR:RD}}>{t.pnl?fmt(parseFloat(t.pnl)):"—"}</td>
-                <td style={{padding:"8px 6px"}}><span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"4px",fontSize:"11px"}}>{t.grade||"—"}</span></td>
+                <td style={{padding:"8px 6px"}}><span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"0",fontSize:"11px"}}>{t.grade||"—"}</span></td>
               </tr>
             ))}</tbody>
           </table></div>}
@@ -466,7 +469,7 @@ export default function App() {
           <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>
             {instruments.map(i=>(
               <button key={i} onClick={()=>setTf(f=>({...f,instrument:i}))}
-                style={{background:tf.instrument===i?WHT:CARD,color:tf.instrument===i?BG:MUT,border:`1px solid ${tf.instrument===i?WHT:BOR}`,padding:"10px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"13px",fontWeight:tf.instrument===i?"700":"400",minHeight:"44px"}}>
+                style={{background:tf.instrument===i?WHT:CARD,color:tf.instrument===i?BG:MUT,border:`1px solid ${tf.instrument===i?WHT:BOR}`,padding:"10px 14px",borderRadius:"0",cursor:"pointer",fontSize:"13px",fontWeight:tf.instrument===i?"700":"400",minHeight:"44px"}}>
                 {i}
               </button>
             ))}
@@ -477,11 +480,11 @@ export default function App() {
           <div style={lbl}>Direction</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
             <button onClick={()=>setTf(f=>({...f,direction:"Long"}))}
-              style={{background:tf.direction==="Long"?GR+"22":CARD,color:tf.direction==="Long"?GR:MUT,border:`2px solid ${tf.direction==="Long"?GR:BOR}`,padding:"14px",borderRadius:"10px",cursor:"pointer",fontSize:"15px",fontWeight:"700",minHeight:"52px"}}>
+              style={{background:tf.direction==="Long"?GR+"22":CARD,color:tf.direction==="Long"?GR:MUT,border:`2px solid ${tf.direction==="Long"?GR:BOR}`,padding:"14px",borderRadius:"0",cursor:"pointer",fontSize:"15px",fontWeight:"700",minHeight:"52px"}}>
               ▲ Long
             </button>
             <button onClick={()=>setTf(f=>({...f,direction:"Short"}))}
-              style={{background:tf.direction==="Short"?RD+"22":CARD,color:tf.direction==="Short"?RD:MUT,border:`2px solid ${tf.direction==="Short"?RD:BOR}`,padding:"14px",borderRadius:"10px",cursor:"pointer",fontSize:"15px",fontWeight:"700",minHeight:"52px"}}>
+              style={{background:tf.direction==="Short"?RD+"22":CARD,color:tf.direction==="Short"?RD:MUT,border:`2px solid ${tf.direction==="Short"?RD:BOR}`,padding:"14px",borderRadius:"0",cursor:"pointer",fontSize:"15px",fontWeight:"700",minHeight:"52px"}}>
               ▼ Short
             </button>
           </div>
@@ -514,7 +517,7 @@ export default function App() {
           <div style={{display:"flex",gap:"8px"}}>
             {GRADES.map(g=>(
               <button key={g} onClick={()=>setTf(f=>({...f,grade:g}))}
-                style={{flex:1,background:tf.grade===g?WHT:CARD,color:tf.grade===g?BG:MUT,border:`1px solid ${tf.grade===g?WHT:BOR}`,padding:"12px 0",borderRadius:"10px",cursor:"pointer",fontSize:"15px",fontWeight:"700",minHeight:"48px"}}>
+                style={{flex:1,background:tf.grade===g?WHT:CARD,color:tf.grade===g?BG:MUT,border:`1px solid ${tf.grade===g?WHT:BOR}`,padding:"12px 0",borderRadius:"0",cursor:"pointer",fontSize:"15px",fontWeight:"700",minHeight:"48px"}}>
                 {g}
               </button>
             ))}
@@ -525,7 +528,7 @@ export default function App() {
           <div style={{display:"flex",gap:"8px"}}>
             {["Yes","No","Partially"].map(v=>(
               <button key={v} onClick={()=>setTf(f=>({...f,followedRules:v}))}
-                style={{flex:1,background:tf.followedRules===v?(v==="Yes"?GR+"22":v==="No"?RD+"22":WHT+"11"):CARD,color:tf.followedRules===v?(v==="Yes"?GR:v==="No"?RD:WHT):MUT,border:`1px solid ${tf.followedRules===v?(v==="Yes"?GR:v==="No"?RD:WHT):BOR}`,padding:"12px 0",borderRadius:"10px",cursor:"pointer",fontSize:"13px",fontWeight:tf.followedRules===v?"700":"400",minHeight:"44px"}}>
+                style={{flex:1,background:tf.followedRules===v?(v==="Yes"?GR+"22":v==="No"?RD+"22":WHT+"11"):CARD,color:tf.followedRules===v?(v==="Yes"?GR:v==="No"?RD:WHT):MUT,border:`1px solid ${tf.followedRules===v?(v==="Yes"?GR:v==="No"?RD:WHT):BOR}`,padding:"12px 0",borderRadius:"0",cursor:"pointer",fontSize:"13px",fontWeight:tf.followedRules===v?"700":"400",minHeight:"44px"}}>
                 {v}
               </button>
             ))}
@@ -551,8 +554,8 @@ export default function App() {
                 <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.exitPrice||"—"}</td>
                 <td style={{padding:"8px 6px",fontFamily:"monospace",fontWeight:"700",color:parseFloat(t.pnl||0)>=0?GR:RD}}>{t.pnl?fmt(parseFloat(t.pnl)):"—"}</td>
                 <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.rrAchieved||"—"}</td>
-                <td style={{padding:"8px 6px"}}><span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"4px",fontSize:"11px"}}>{t.grade||"—"}</span></td>
-                <td style={{padding:"8px 6px"}}><button onClick={()=>deleteTrade(t.id)} style={{background:RD,color:WHT,border:"none",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Del</button></td>
+                <td style={{padding:"8px 6px"}}><span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"0",fontSize:"11px"}}>{t.grade||"—"}</span></td>
+                <td style={{padding:"8px 6px"}}><button onClick={()=>deleteTrade(t.id)} style={{background:RD,color:WHT,border:"none",padding:"4px 10px",borderRadius:"0",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Del</button></td>
               </tr>
             ))}</tbody>
           </table></div>}
@@ -578,9 +581,9 @@ export default function App() {
         <div style={{color:MUT,fontSize:"13px",marginTop:"6px",marginBottom:"16px"}}>of required checks completed</div>
 
         {/* Progress bar */}
-        <div style={{background:MUT2,borderRadius:"6px",height:"10px",overflow:"hidden",marginBottom:"12px"}}>
+        <div style={{background:MUT2,borderRadius:"0",height:"10px",overflow:"hidden",marginBottom:"12px"}}>
           <div style={{display:"flex",height:"10px"}}>
-            <div style={{background:allGreen?GR:WHT,width:`${Math.min(100,overallPct)}%`,transition:"width 0.4s",borderRadius:"6px"}}/>
+            <div style={{background:allGreen?GR:WHT,width:`${Math.min(100,overallPct)}%`,transition:"width 0.4s",borderRadius:"0"}}/>
           </div>
         </div>
 
@@ -608,7 +611,7 @@ export default function App() {
         </div>
 
         {allGreen
-          ? <div style={{color:GR,fontWeight:"700",fontSize:"15px",padding:"10px",background:GR+"11",borderRadius:"8px"}}>✓ ALL CLEAR — READY TO TRADE</div>
+          ? <div style={{color:GR,fontWeight:"700",fontSize:"15px",padding:"10px",background:"rgba(107,158,107,0.08)",borderRadius:"0"}}>✓ ALL CLEAR — READY TO TRADE</div>
           : <div style={{color:MUT,fontSize:"13px"}}>{totalRequired - totalChecked} more required check{totalRequired-totalChecked!==1?"s":""} needed</div>}
       </div>
 
@@ -647,15 +650,15 @@ export default function App() {
               const gi    = start+i;
               const state = ck[gi]; // "yes" | "no" | undefined
               return(
-                <div key={item} style={{display:"flex",alignItems:"center",gap:"10px",padding:"12px",borderRadius:"10px",marginBottom:"6px",background:state==="yes"?"#001a0d":state==="no"?"#1a0000":CARD,border:`1px solid ${state==="yes"?GR:state==="no"?RD:BOR}`,minHeight:"52px"}}>
+                <div key={item} style={{display:"flex",alignItems:"center",gap:"10px",padding:"12px",borderRadius:"0",marginBottom:"6px",background:state==="yes"?"#001a0d":state==="no"?"#1a0000":CARD,border:`1px solid ${state==="yes"?GR:state==="no"?RD:BOR}`,minHeight:"52px"}}>
                   <span style={{color:state==="yes"?WHT:state==="no"?MUT2:MUT,fontSize:"14px",lineHeight:"1.4",flex:1}}>{item}</span>
                   <div style={{display:"flex",gap:"6px",flexShrink:0}}>
                     <button onClick={()=>setCk(c=>({...c,[gi]:c[gi]==="yes"?undefined:"yes"}))}
-                      style={{background:state==="yes"?GR:CARD,color:state==="yes"?BG:MUT,border:`1px solid ${state==="yes"?GR:BOR}`,padding:"7px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:state==="yes"?"700":"400",minHeight:"36px",minWidth:"48px"}}>
+                      style={{background:state==="yes"?GR:CARD,color:state==="yes"?BG:MUT,border:`1px solid ${state==="yes"?GR:BOR}`,padding:"7px 14px",borderRadius:"0",cursor:"pointer",fontSize:"12px",fontWeight:state==="yes"?"700":"400",minHeight:"36px",minWidth:"48px"}}>
                       YES
                     </button>
                     <button onClick={()=>setCk(c=>({...c,[gi]:c[gi]==="no"?undefined:"no"}))}
-                      style={{background:state==="no"?RD:CARD,color:state==="no"?WHT:MUT,border:`1px solid ${state==="no"?RD:BOR}`,padding:"7px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:state==="no"?"700":"400",minHeight:"36px",minWidth:"48px"}}>
+                      style={{background:state==="no"?RD:CARD,color:state==="no"?WHT:MUT,border:`1px solid ${state==="no"?RD:BOR}`,padding:"7px 14px",borderRadius:"0",cursor:"pointer",fontSize:"12px",fontWeight:state==="no"?"700":"400",minHeight:"36px",minWidth:"48px"}}>
                       NO
                     </button>
                   </div>
@@ -691,7 +694,7 @@ export default function App() {
           <div style={{display:"flex",flexDirection:"column",gap:"6px"}}>
             {[["base",`Base Risk — ${settings.baseRisk}%`],["major",`Major Level — ${settings.majorRisk}%`],["drawdown",`In Drawdown — ${settings.drawdownRisk}%`]].map(([v,l])=>(
               <button key={v} onClick={()=>setRc(r=>({...r,riskType:v}))}
-                style={{background:rc.riskType===v?WHT:CARD,color:rc.riskType===v?BG:MUT,border:`1px solid ${rc.riskType===v?WHT:BOR}`,padding:"12px 16px",borderRadius:"10px",cursor:"pointer",fontSize:"13px",textAlign:"left",fontWeight:rc.riskType===v?"700":"400",minHeight:"44px"}}>
+                style={{background:rc.riskType===v?WHT:CARD,color:rc.riskType===v?BG:MUT,border:`1px solid ${rc.riskType===v?WHT:BOR}`,padding:"12px 16px",borderRadius:"0",cursor:"pointer",fontSize:"13px",textAlign:"left",fontWeight:rc.riskType===v?"700":"400",minHeight:"44px"}}>
                 {l}
               </button>
             ))}
@@ -701,14 +704,14 @@ export default function App() {
           <div><label style={lbl}>Entry Price</label><input type="number" style={inp()} value={rc.entry} onChange={e=>setRc(r=>({...r,entry:e.target.value}))}/></div>
           <div><label style={lbl}>Stop Loss</label><input type="number" style={inp()} value={rc.sl} onChange={e=>setRc(r=>({...r,sl:e.target.value}))}/></div>
         </div>
-        <div style={{marginTop:"12px",padding:"14px",background:CARD,borderRadius:"10px",display:"flex",alignItems:"center",gap:"12px"}}>
+        <div style={{marginTop:"12px",padding:"14px",background:CARD,borderRadius:"0",display:"flex",alignItems:"center",gap:"12px"}}>
           <span style={{color:MUT,fontSize:"13px"}}>Risk amount:</span>
           <span style={{color:RD,fontSize:"20px",fontWeight:"700",fontFamily:"monospace"}}>{fmt(Math.round(rcRiskAmt))}</span>
         </div>
         {rcResult&&(
           <div style={{...g2,marginTop:"12px"}}>
             {[{label:"Risk Amount",val:fmt(rcResult.risk),color:RD},{label:"SL Distance",val:rcResult.slDist+" pts",color:MUT},{label:"Position Size",val:rcResult.size+" units",color:WHT},{label:"Target Price",val:rcResult.tp,color:GR}].map(x=>(
-              <div key={x.label} style={{background:CARD,borderRadius:"10px",padding:"14px",textAlign:"center"}}>
+              <div key={x.label} style={{background:CARD,borderRadius:"0",padding:"14px",textAlign:"center"}}>
                 <div style={{color:x.color,fontSize:"18px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
                 <div style={{color:MUT,fontSize:"10px",marginTop:"5px"}}>{x.label}</div>
               </div>
@@ -720,7 +723,7 @@ export default function App() {
         <div style={h2sty}>SL Management Rules</div>
         <div style={g2}>
           {[{type:"Intraday",rules:["Enter on breakout or retest","Move SL to B/E at 1:1.5 R","Exit at 1:2 R:R",`Max ${settings.maxIntraday} trades/day`]},{type:"Swing / Positional",rules:["Move SL 50% closer at 1:1","Move SL to B/E at 1:2","Scale out at each S/R","Trail final position"]}].map(x=>(
-            <div key={x.type} style={{background:CARD,borderRadius:"10px",padding:"14px"}}>
+            <div key={x.type} style={{background:CARD,borderRadius:"0",padding:"14px"}}>
               <div style={{color:WHT,fontSize:"11px",fontWeight:"700",marginBottom:"10px",textTransform:"uppercase",letterSpacing:"1px"}}>{x.type}</div>
               {x.rules.map((r,i)=><div key={i} style={{display:"flex",gap:"8px",marginBottom:"8px"}}><span style={{color:WHT}}>→</span><span style={{color:MUT,fontSize:"13px"}}>{r}</span></div>)}
             </div>
@@ -731,7 +734,7 @@ export default function App() {
         <div style={h2sty}>Loss Limits</div>
         <div style={g3}>
           {[{label:"Daily",val:fmt(settings.dailyLimit)},{label:"Weekly",val:fmt(settings.weeklyLimit)},{label:"Monthly",val:fmt(settings.monthlyLimit)}].map(x=>(
-            <div key={x.label} style={{background:CARD,borderRadius:"10px",padding:"14px",textAlign:"center"}}>
+            <div key={x.label} style={{background:CARD,borderRadius:"0",padding:"14px",textAlign:"center"}}>
               <div style={{color:RD,fontSize:"18px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
               <div style={{color:MUT,fontSize:"10px",marginTop:"4px"}}>{x.label} Limit</div>
             </div>
@@ -755,7 +758,7 @@ export default function App() {
           <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>
             {instruments.map(i=>(
               <button key={i} onClick={()=>setPf(f=>({...f,instrument:i}))}
-                style={{background:pf.instrument===i?WHT:CARD,color:pf.instrument===i?BG:MUT,border:`1px solid ${pf.instrument===i?WHT:BOR}`,padding:"10px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"13px",fontWeight:pf.instrument===i?"700":"400",minHeight:"44px"}}>
+                style={{background:pf.instrument===i?WHT:CARD,color:pf.instrument===i?BG:MUT,border:`1px solid ${pf.instrument===i?WHT:BOR}`,padding:"10px 14px",borderRadius:"0",cursor:"pointer",fontSize:"13px",fontWeight:pf.instrument===i?"700":"400",minHeight:"44px"}}>
                 {i}
               </button>
             ))}
@@ -766,7 +769,7 @@ export default function App() {
           <div style={{display:"flex",gap:"8px"}}>
             {[["Bullish","▲",GR],["Bearish","▼",RD],["Neutral","—",MUT]].map(([b,icon,col])=>(
               <button key={b} onClick={()=>setPf(f=>({...f,bias:b}))}
-                style={{flex:1,background:pf.bias===b?col+"22":CARD,color:pf.bias===b?col:MUT,border:`2px solid ${pf.bias===b?col:BOR}`,padding:"12px",borderRadius:"10px",cursor:"pointer",fontSize:"14px",fontWeight:pf.bias===b?"700":"400",minHeight:"52px"}}>
+                style={{flex:1,background:pf.bias===b?col+"22":CARD,color:pf.bias===b?col:MUT,border:`2px solid ${pf.bias===b?col:BOR}`,padding:"12px",borderRadius:"0",cursor:"pointer",fontSize:"14px",fontWeight:pf.bias===b?"700":"400",minHeight:"52px"}}>
                 {icon} {b}
               </button>
             ))}
@@ -789,7 +792,7 @@ export default function App() {
         <div style={h2sty}>Rules Quick Reference</div>
         <div style={g2}>
           {[{title:"Green Light ✅",color:GR,items:["Daily + TF aligned","Pattern obvious",`Min 1:${settings.minRR} R:R`,"Clear S/R level","SL behind structure"]},{title:"Red Flags 🚫",color:RD,items:["No clear structure","FOMO trade","SL too wide","Loss limit hit","Emotionally off"]}].map(x=>(
-            <div key={x.title} style={{background:CARD,borderRadius:"10px",padding:"14px"}}>
+            <div key={x.title} style={{background:CARD,borderRadius:"0",padding:"14px"}}>
               <div style={{color:x.color,fontSize:"11px",fontWeight:"700",marginBottom:"10px",textTransform:"uppercase",letterSpacing:"1px"}}>{x.title}</div>
               {x.items.map((r,i)=><div key={i} style={{display:"flex",gap:"8px",marginBottom:"6px"}}><span style={{color:x.color}}>{x.color===GR?"✓":"✗"}</span><span style={{color:MUT,fontSize:"13px"}}>{r}</span></div>)}
             </div>
@@ -880,7 +883,7 @@ export default function App() {
             {label:"Win Rate",   val:filtCl?((filtWins/filtCl)*100).toFixed(1)+"%":"—",                  color:WHT},
             {label:"Closed",     val:filtCl+" trades",                                                   color:MUT},
           ].map(x=>(
-            <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"10px",padding:"12px",textAlign:"center"}}>
+            <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"0",padding:"12px",textAlign:"center"}}>
               <div style={{color:x.color,fontSize:"16px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
               <div style={{color:MUT,fontSize:"10px",marginTop:"3px"}}>{x.label}</div>
             </div>
@@ -912,12 +915,12 @@ export default function App() {
                         <td style={{padding:"8px 6px",fontFamily:"monospace",fontWeight:"700",color:parseFloat(t.pnl||0)>=0?GR:RD}}>{t.pnl?fmt(parseFloat(t.pnl)):"—"}</td>
                         <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.rrAchieved||"—"}</td>
                         <td style={{padding:"8px 6px"}}>
-                          <span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"4px",fontSize:"11px"}}>{t.grade||"—"}</span>
+                          <span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"0",fontSize:"11px"}}>{t.grade||"—"}</span>
                         </td>
                         <td style={{padding:"8px 6px",color:t.followedRules==="Yes"?GR:t.followedRules==="No"?RD:MUT,fontSize:"11px"}}>{t.followedRules||"—"}</td>
                         <td style={{padding:"8px 6px",color:MUT,fontSize:"11px"}}>{t.emotion||"—"}</td>
                         <td style={{padding:"8px 6px"}}>
-                          <button onClick={()=>deleteTrade(t.id)} style={{background:RD,color:WHT,border:"none",padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Del</button>
+                          <button onClick={()=>deleteTrade(t.id)} style={{background:RD,color:WHT,border:"none",padding:"4px 10px",borderRadius:"0",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Del</button>
                         </td>
                       </tr>
                     ))}
@@ -939,12 +942,12 @@ export default function App() {
     return(<div>
       <div style={{display:"flex",gap:"8px",marginBottom:"14px"}}>
         {[["intraday","Intraday"],["swing","Swing / Positional"],["combined","Combined"]].map(([k,l])=>(
-          <button key={k} onClick={()=>setAtab(k)} style={{flex:1,background:atab===k?WHT:CARD,color:atab===k?BG:MUT,border:`1px solid ${atab===k?WHT:BOR}`,padding:"12px",borderRadius:"10px",cursor:"pointer",fontSize:"13px",fontWeight:atab===k?"700":"400",minHeight:"44px"}}>{l}</button>
+          <button key={k} onClick={()=>setAtab(k)} style={{flex:1,background:atab===k?WHT:CARD,color:atab===k?BG:MUT,border:`1px solid ${atab===k?WHT:BOR}`,padding:"12px",borderRadius:"0",cursor:"pointer",fontSize:"13px",fontWeight:atab===k?"700":"400",minHeight:"44px"}}>{l}</button>
         ))}
       </div>
       <div style={g4}>
         {[{label:"Win Rate",val:st.winRate+"%",color:WHT},{label:"Total P&L",val:fmt(st.pnl),color:st.pnl>=0?GR:RD},{label:"Avg R:R",val:st.avgRR,color:WHT},{label:"Profit Factor",val:st.pf,color:WHT}].map(x=>(
-          <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"12px",padding:"14px",textAlign:"center"}}>
+          <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"0",padding:"14px",textAlign:"center"}}>
             <div style={{color:x.color,fontSize:M?"18px":"22px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
             <div style={{color:MUT,fontSize:"10px",marginTop:"3px"}}>{x.label}</div>
           </div>
@@ -985,7 +988,7 @@ export default function App() {
     return(<div>
       <div style={{display:"flex",gap:"6px",marginBottom:"14px"}}>
         {[["daily","Daily"],["weekly","Weekly"],["monthly","Monthly"]].map(([k,l])=>(
-          <button key={k} onClick={()=>{setRtab(k);setRf(emptyReview(k));}} style={{flex:1,background:rtab===k?WHT:CARD,color:rtab===k?BG:MUT,border:`1px solid ${rtab===k?WHT:BOR}`,padding:"12px",borderRadius:"10px",cursor:"pointer",fontSize:"13px",fontWeight:rtab===k?"700":"400",minHeight:"44px"}}>{l}</button>
+          <button key={k} onClick={()=>{setRtab(k);setRf(emptyReview(k));}} style={{flex:1,background:rtab===k?WHT:CARD,color:rtab===k?BG:MUT,border:`1px solid ${rtab===k?WHT:BOR}`,padding:"12px",borderRadius:"0",cursor:"pointer",fontSize:"13px",fontWeight:rtab===k?"700":"400",minHeight:"44px"}}>{l}</button>
         ))}
       </div>
       <div style={card()}>
@@ -997,7 +1000,7 @@ export default function App() {
             <div style={{display:"flex",gap:"5px",flexWrap:"wrap"}}>
               {MENTAL.map(m=>(
                 <button key={m} onClick={()=>setRf(f=>({...f,mentalState:m}))}
-                  style={{background:rf.mentalState===m?mentalColor(m):CARD,color:rf.mentalState===m?BG:MUT,border:`1px solid ${rf.mentalState===m?mentalColor(m):BOR}`,padding:"8px 10px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:rf.mentalState===m?"700":"400",minHeight:"44px"}}>
+                  style={{background:rf.mentalState===m?mentalColor(m):CARD,color:rf.mentalState===m?BG:MUT,border:`1px solid ${rf.mentalState===m?mentalColor(m):BOR}`,padding:"8px 10px",borderRadius:"0",cursor:"pointer",fontSize:"12px",fontWeight:rf.mentalState===m?"700":"400",minHeight:"44px"}}>
                   {m}
                 </button>
               ))}
@@ -1014,12 +1017,12 @@ export default function App() {
         <div style={card()}>
           <div style={{...h2sty,display:"flex",justifyContent:"space-between",alignItems:"center"}}><span>Past Reviews ({filtered.length})</span><button onClick={()=>exportReviewsCSV(filtered)} style={btn({padding:"6px 14px",fontSize:"11px"})}>⬇ CSV</button></div>
           {filtered.map(r=>(
-            <div key={r.id} style={{background:CARD,borderRadius:"10px",padding:"14px",marginBottom:"10px"}}>
+            <div key={r.id} style={{background:CARD,borderRadius:"0",padding:"14px",marginBottom:"10px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
                 <span style={{color:WHT,fontSize:"13px",fontWeight:"700"}}>{r.date}</span>
                 <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
                   <span style={{background:`${mentalColor(r.mentalState)}22`,color:mentalColor(r.mentalState),padding:"3px 10px",borderRadius:"20px",fontSize:"11px",fontWeight:"700"}}>{r.mentalState}</span>
-                  <button onClick={()=>deleteReview(r.id)} style={{background:"transparent",color:MUT,border:`1px solid ${BOR}`,padding:"4px 8px",borderRadius:"5px",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Del</button>
+                  <button onClick={()=>deleteReview(r.id)} style={{background:"transparent",color:MUT,border:`1px solid ${BOR}`,padding:"4px 8px",borderRadius:"0",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Del</button>
                 </div>
               </div>
               <div style={{display:"grid",gridTemplateColumns:M?"1fr":"1fr 1fr",gap:"10px"}}>
@@ -1093,13 +1096,13 @@ export default function App() {
             <button onClick={()=>{pList("checks",DEF_CHECKS,setChecks);setCk({});}} style={btnGh({padding:"6px 12px",fontSize:"11px"})}>Reset</button>
           </div>
           {Object.entries(checks).map(([section,items])=>(
-            <div key={section} style={{background:CARD,borderRadius:"10px",padding:"14px",marginBottom:"10px"}}>
+            <div key={section} style={{background:CARD,borderRadius:"0",padding:"14px",marginBottom:"10px"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"10px"}}>
                 <span style={{color:WHT,fontSize:"12px",fontWeight:"700",textTransform:"uppercase",letterSpacing:"1px"}}>{section}</span>
-                <button onClick={()=>delSection(section)} style={{background:"transparent",color:RD,border:`1px solid ${RD}`,padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Delete</button>
+                <button onClick={()=>delSection(section)} style={{background:"transparent",color:RD,border:`1px solid ${RD}`,padding:"4px 10px",borderRadius:"0",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Delete</button>
               </div>
               {items.map(item=>(
-                <div key={item} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",borderRadius:"8px",background:SURF,marginBottom:"5px",gap:"10px",minHeight:"44px"}}>
+                <div key={item} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 10px",borderRadius:"0",background:SURF,marginBottom:"5px",gap:"10px",minHeight:"44px"}}>
                   <span style={{color:MUT,fontSize:"13px",flex:1}}>{item}</span>
                   <button onClick={()=>delItem(section,item)} style={{background:"transparent",color:RD,border:"none",cursor:"pointer",fontSize:"18px",padding:"0 4px",lineHeight:1}}>×</button>
                 </div>
@@ -1110,7 +1113,7 @@ export default function App() {
               </div>
             </div>
           ))}
-          <div style={{marginTop:"12px",padding:"14px",background:CARD,borderRadius:"10px"}}>
+          <div style={{marginTop:"12px",padding:"14px",background:CARD,borderRadius:"0"}}>
             <div style={{color:MUT,fontSize:"12px",marginBottom:"8px"}}>Add New Section</div>
             <div style={{display:"flex",gap:"8px"}}>
               <input type="text" style={inp({flex:1})} value={newSection} onChange={e=>setNewSection(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addSection()} placeholder="Section name..."/>
@@ -1138,16 +1141,16 @@ export default function App() {
             const t = TAB_DEFS.find(x=>x.key===key);
             if (!t) return null;
             return (
-              <div key={key} style={{display:"flex",alignItems:"center",gap:"10px",padding:"10px 12px",borderRadius:"10px",background:CARD,border:`1px solid ${BOR}`,marginBottom:"6px"}}>
+              <div key={key} style={{display:"flex",alignItems:"center",gap:"10px",padding:"10px 12px",borderRadius:"0",background:CARD,border:`1px solid ${BOR}`,marginBottom:"6px"}}>
                 <span style={{color:MUT,fontSize:"12px",fontFamily:"monospace",minWidth:"20px"}}>{idx+1}</span>
                 <span style={{color:WHT,fontSize:"14px"}}>{t.icon}</span>
                 <span style={{color:WHT,fontSize:"14px",flex:1}}>{t.label}</span>
-                {idx < 4 && <span style={{background:WHT+"22",color:WHT,fontSize:"10px",padding:"2px 8px",borderRadius:"4px"}}>Bottom nav</span>}
+                {idx < 4 && <span style={{background:WHT+"22",color:WHT,fontSize:"10px",padding:"2px 8px",borderRadius:"0"}}>Bottom nav</span>}
                 <div style={{display:"flex",gap:"4px"}}>
                   <button onClick={()=>moveTab(key,-1)} disabled={idx===0}
-                    style={{background:idx===0?MUT2:CARD,color:idx===0?BOR:WHT,border:`1px solid ${BOR}`,width:"32px",height:"32px",borderRadius:"6px",cursor:idx===0?"default":"pointer",fontSize:"14px",display:"flex",alignItems:"center",justifyContent:"center"}}>↑</button>
+                    style={{background:idx===0?MUT2:CARD,color:idx===0?BOR:WHT,border:`1px solid ${BOR}`,width:"32px",height:"32px",borderRadius:"0",cursor:idx===0?"default":"pointer",fontSize:"14px",display:"flex",alignItems:"center",justifyContent:"center"}}>↑</button>
                   <button onClick={()=>moveTab(key,1)} disabled={idx===tabOrder.length-1}
-                    style={{background:idx===tabOrder.length-1?MUT2:CARD,color:idx===tabOrder.length-1?BOR:WHT,border:`1px solid ${BOR}`,width:"32px",height:"32px",borderRadius:"6px",cursor:idx===tabOrder.length-1?"default":"pointer",fontSize:"14px",display:"flex",alignItems:"center",justifyContent:"center"}}>↓</button>
+                    style={{background:idx===tabOrder.length-1?MUT2:CARD,color:idx===tabOrder.length-1?BOR:WHT,border:`1px solid ${BOR}`,width:"32px",height:"32px",borderRadius:"0",cursor:idx===tabOrder.length-1?"default":"pointer",fontSize:"14px",display:"flex",alignItems:"center",justifyContent:"center"}}>↓</button>
                 </div>
               </div>
             );
@@ -1168,7 +1171,7 @@ export default function App() {
     const nf=(label,key,step=1)=>(<div><label style={lbl}>{label}</label><input type="number" step={step} style={inp()} value={draft[key]} onChange={e=>setDraft(d=>({...d,[key]:parseFloat(e.target.value)||0}))}/></div>);
     const scales=[{label:"Small",val:0.85},{label:"Normal",val:1},{label:"Large",val:1.2},{label:"X-Large",val:1.4},{label:"XX-Large",val:1.6}];
     return(<div>
-      {savedMsg&&<div style={{background:"#001a0d",border:`1px solid ${GR}`,borderRadius:"10px",padding:"12px 16px",marginBottom:"14px",color:GR,fontSize:"13px",fontWeight:"700"}}>{savedMsg}</div>}
+      {savedMsg&&<div style={{background:"#001a0d",border:`1px solid ${GR}`,borderRadius:"0",padding:"12px 16px",marginBottom:"14px",color:GR,fontSize:"13px",fontWeight:"700"}}>{savedMsg}</div>}
 
       {/* Text Size */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
@@ -1177,13 +1180,13 @@ export default function App() {
         <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
           {scales.map(s=>(
             <button key={s.val} onClick={()=>{ const u={...settings,textScale:s.val}; setSettings(u); lsSet(uk("settings"),u); sbSaveSettings(u,activeUser); }}
-              style={{flex:1,minWidth:"80px",background:settings.textScale===s.val?WHT:CARD,color:settings.textScale===s.val?BG:MUT,border:`1px solid ${settings.textScale===s.val?WHT:BOR}`,padding:"12px 8px",borderRadius:"10px",cursor:"pointer",fontSize:"13px",fontWeight:settings.textScale===s.val?"700":"400",minHeight:"48px",textAlign:"center"}}>
+              style={{flex:1,minWidth:"80px",background:settings.textScale===s.val?WHT:CARD,color:settings.textScale===s.val?BG:MUT,border:`1px solid ${settings.textScale===s.val?WHT:BOR}`,padding:"12px 8px",borderRadius:"0",cursor:"pointer",fontSize:"13px",fontWeight:settings.textScale===s.val?"700":"400",minHeight:"48px",textAlign:"center"}}>
               <div style={{fontFamily:"monospace",fontSize:"15px",marginBottom:"2px"}}>{s.label==="Small"?"Aa":s.label==="Normal"?"Aa":s.label==="Large"?"Aa":s.label==="X-Large"?"Aa":"Aa"}</div>
               {s.label}
             </button>
           ))}
         </div>
-        <div style={{marginTop:"12px",padding:"12px",background:CARD,borderRadius:"8px",color:MUT,fontSize:"12px"}}>
+        <div style={{marginTop:"12px",padding:"12px",background:CARD,borderRadius:"0",color:MUT,fontSize:"12px"}}>
           Current scale: <span style={{color:WHT,fontWeight:"700"}}>{settings.textScale||1}x</span> — changes apply instantly without saving
         </div>
       </div>
@@ -1194,7 +1197,7 @@ export default function App() {
         <div style={g2}>
           <div><label style={lbl}>Trader Name</label><input type="text" style={inp()} value={draft.traderName} onChange={e=>setDraft(d=>({...d,traderName:e.target.value}))}/></div>
           <div style={{display:"flex",alignItems:"center"}}>
-            <div style={{background:CARD,borderRadius:"10px",padding:"12px",display:"flex",alignItems:"center",gap:"12px",width:"100%"}}>
+            <div style={{background:CARD,borderRadius:"0",padding:"12px",display:"flex",alignItems:"center",gap:"12px",width:"100%"}}>
               <div style={{width:"40px",height:"40px",borderRadius:"50%",background:MUT2,border:`1px solid ${BOR}`,display:"flex",alignItems:"center",justifyContent:"center",color:WHT,fontWeight:"700",fontSize:"16px",flexShrink:0}}>{activeUser.charAt(0).toUpperCase()}</div>
               <div><div style={{color:WHT,fontSize:"14px",fontWeight:"700"}}>{activeUser}</div><div style={{color:MUT,fontSize:"11px"}}>Active profile</div></div>
             </div>
@@ -1210,7 +1213,7 @@ export default function App() {
           {nf("Major Level %","majorRisk",0.01)}
           {nf("Drawdown %","drawdownRisk",0.01)}
         </div>
-        <div style={{marginTop:"12px",padding:"12px",background:CARD,borderRadius:"10px"}}>
+        <div style={{marginTop:"12px",padding:"12px",background:CARD,borderRadius:"0"}}>
           <div style={{color:MUT,fontSize:"11px",marginBottom:"8px"}}>At {fmt(draft.capital)}:</div>
           <div style={{display:"flex",gap:"20px",flexWrap:"wrap"}}>
             {[{label:"Base",val:draft.capital*(draft.baseRisk/100)},{label:"Major",val:draft.capital*(draft.majorRisk/100)},{label:"Drawdown",val:draft.capital*(draft.drawdownRisk/100)}].map(x=>(
@@ -1240,7 +1243,7 @@ export default function App() {
           const minReq = getMin(section);
           const pct    = (minReq/items.length)*100;
           return(
-            <div key={section} style={{background:CARD,borderRadius:"10px",padding:"14px",marginBottom:"10px"}}>
+            <div key={section} style={{background:CARD,borderRadius:"0",padding:"14px",marginBottom:"10px"}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px",gap:"10px",flexWrap:"wrap"}}>
                 <span style={{color:WHT,fontSize:"13px",fontWeight:"600"}}>{section}</span>
                 <span style={{color:MUT,fontSize:"11px"}}>{items.length} items total</span>
@@ -1250,8 +1253,8 @@ export default function App() {
               <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"10px"}}>
                 <span style={{color:MUT,fontSize:"12px",minWidth:"12px"}}>0</span>
                 <div style={{flex:1,position:"relative",height:"24px",display:"flex",alignItems:"center"}}>
-                  <div style={{width:"100%",background:MUT2,borderRadius:"4px",height:"6px"}}>
-                    <div style={{background:GR,width:`${pct}%`,height:"6px",borderRadius:"4px",transition:"width 0.2s"}}/>
+                  <div style={{width:"100%",background:MUT2,borderRadius:"0",height:"6px"}}>
+                    <div style={{background:GR,width:`${pct}%`,height:"6px",borderRadius:"0",transition:"width 0.2s"}}/>
                   </div>
                   <input
                     type="range"
@@ -1273,7 +1276,7 @@ export default function App() {
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                 <div style={{display:"flex",gap:"4px"}}>
                   {items.map((_,i)=>(
-                    <div key={i} style={{width:"10px",height:"10px",borderRadius:"50%",background:i<minReq?GR:MUT2,transition:"background 0.15s"}}/>
+                    <div key={i} style={{width:"10px",height:"10px",borderRadius:"0",background:i<minReq?AMB:MUT2,transition:"background 0.15s"}}/>
                   ))}
                 </div>
                 <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
@@ -1293,7 +1296,7 @@ export default function App() {
                   {label:"All",  val:items.length},
                 ].map(p=>(
                   <button key={p.label} onClick={()=>{const u={...sectionMins,[section]:p.val};setSectionMins(u);lsSet(uk("sectionMins"),u);}}
-                    style={{flex:1,background:minReq===p.val?WHT:CARD,color:minReq===p.val?BG:MUT,border:`1px solid ${minReq===p.val?WHT:BOR}`,padding:"6px 0",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:minReq===p.val?"700":"400",minHeight:"32px"}}>
+                    style={{flex:1,background:minReq===p.val?WHT:CARD,color:minReq===p.val?BG:MUT,border:`1px solid ${minReq===p.val?WHT:BOR}`,padding:"6px 0",borderRadius:"0",cursor:"pointer",fontSize:"11px",fontWeight:minReq===p.val?"700":"400",minHeight:"32px"}}>
                     {p.label}
                   </button>
                 ))}
@@ -1307,7 +1310,7 @@ export default function App() {
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
         <div style={h2sty}>📥 Import Trades</div>
         <div style={{color:MUT,fontSize:"12px",marginBottom:"12px"}}>Import your Zerodha tradebook JSON. Duplicate trades are automatically skipped.</div>
-        <label style={{display:"block",background:CARD,border:`2px dashed ${BOR}`,borderRadius:"10px",padding:"20px",textAlign:"center",cursor:"pointer"}}>
+        <label style={{display:"block",background:CARD,border:`2px dashed ${BOR}`,borderRadius:"0",padding:"20px",textAlign:"center",cursor:"pointer"}}>
           <div style={{color:WHT,fontSize:"14px",fontWeight:"700",marginBottom:"4px"}}>📁 Choose JSON file</div>
           <div style={{color:MUT,fontSize:"12px"}}>zerodha_trades_import.json</div>
           <input type="file" accept=".json" style={{display:"none"}} onChange={e=>importTrades(e.target.files[0])}/>
@@ -1326,7 +1329,7 @@ export default function App() {
         <div style={h2sty}>👥 All Profiles</div>
         <div style={{display:"flex",gap:"8px",flexWrap:"wrap",marginBottom:"14px"}}>
           {userList.map(u=>(
-            <div key={u} style={{display:"flex",alignItems:"center",gap:"8px",background:CARD,borderRadius:"10px",padding:"10px 14px",border:`1px solid ${u===activeUser?WHT:BOR}`}}>
+            <div key={u} style={{display:"flex",alignItems:"center",gap:"8px",background:CARD,borderRadius:"0",padding:"10px 14px",border:`1px solid ${u===activeUser?WHT:BOR}`}}>
               <div style={{width:"26px",height:"26px",borderRadius:"50%",background:MUT2,display:"flex",alignItems:"center",justifyContent:"center",color:WHT,fontSize:"12px",fontWeight:"700"}}>{u.charAt(0).toUpperCase()}</div>
               <span style={{color:u===activeUser?WHT:MUT,fontSize:"13px"}}>{u}</span>
               {u===activeUser&&<span style={{color:MUT,fontSize:"10px"}}>(you)</span>}
@@ -1345,7 +1348,7 @@ export default function App() {
         <div style={{...h2sty,color:RD}}>⚠ Danger Zone</div>
         <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
           {[{label:"Reset settings",fn:()=>{const ds={...DEFAULT_SETTINGS,traderName:activeUser};setDraft(ds);pSettings(ds);setSavedMsg("✓ Settings reset");setTimeout(()=>setSavedMsg(""),2500);}},{label:"Clear all trades",fn:()=>{if(window.confirm("Delete ALL trades?"))pTrades([]);}},{label:"Clear all reviews",fn:()=>{if(window.confirm("Delete ALL reviews?"))pReviews([]);}}].map(x=>(
-            <button key={x.label} onClick={x.fn} style={{background:"transparent",color:RD,border:`1px solid ${RD}`,padding:"10px 16px",borderRadius:"10px",cursor:"pointer",fontSize:"13px",minHeight:"44px"}}>{x.label}</button>
+            <button key={x.label} onClick={x.fn} style={{background:"transparent",color:RD,border:`1px solid ${RD}`,padding:"10px 16px",borderRadius:"0",cursor:"pointer",fontSize:"13px",minHeight:"44px"}}>{x.label}</button>
           ))}
         </div>
       </div>
@@ -1374,7 +1377,7 @@ export default function App() {
     <div style={{position:"fixed",bottom:"70px",left:0,right:0,background:SURF,borderTop:`1px solid ${BOR}`,zIndex:100,padding:"12px 16px",display:"flex",flexWrap:"wrap",gap:"8px"}}>
       {MORE_TABS.map(t=>(
         <button key={t.key} onClick={()=>navTo(t.key)}
-          style={{flex:"1 1 40%",background:tab===t.key?WHT:CARD,color:tab===t.key?BG:MUT,border:`1px solid ${tab===t.key?WHT:BOR}`,padding:"12px",borderRadius:"10px",cursor:"pointer",fontSize:"13px",fontWeight:tab===t.key?"700":"400",minHeight:"44px",display:"flex",alignItems:"center",justifyContent:"center",gap:"6px"}}>
+          style={{flex:"1 1 40%",background:tab===t.key?WHT:CARD,color:tab===t.key?BG:MUT,border:`1px solid ${tab===t.key?WHT:BOR}`,padding:"12px",borderRadius:"0",cursor:"pointer",fontSize:"13px",fontWeight:tab===t.key?"700":"400",minHeight:"44px",display:"flex",alignItems:"center",justifyContent:"center",gap:"6px"}}>
           {t.icon} {t.label}
         </button>
       ))}
@@ -1383,16 +1386,16 @@ export default function App() {
 
   // ── ROOT ──────────────────────────────────────────────────
   return (
-    <div style={{background:BG,minHeight:"100vh",color:WHT,fontFamily:"-apple-system,sans-serif",zoom:settings.textScale||1}}>
+    <div style={{background:BG,minHeight:"100vh",color:WHT,fontFamily:"'JetBrains Mono', ui-monospace, monospace",fontWeight:300,zoom:settings.textScale||1}}>
 
       {/* DESKTOP TOP NAV */}
       {!M && (
         <div style={{background:SURF,borderBottom:`1px solid ${BOR}`,padding:"12px 20px",display:"flex",alignItems:"center",gap:"16px",flexWrap:"wrap",position:"sticky",top:0,zIndex:50}}>
-          <div style={{color:WHT,fontFamily:"monospace",fontSize:"16px",fontWeight:"700",letterSpacing:"3px",whiteSpace:"nowrap"}}>TOP 1%</div>
+          <div style={{color:WHT,fontFamily:"'JetBrains Mono',monospace",fontSize:"13px",fontWeight:"200",letterSpacing:".02em",whiteSpace:"nowrap"}}>top_1%/ledger</div>
           <div style={{display:"flex",gap:"4px",flexWrap:"wrap",flex:1}}>
             {ALL_TABS.map(t=>(
               <button key={t.key} onClick={()=>setTab(t.key)}
-                style={{background:tab===t.key?WHT:"transparent",color:tab===t.key?BG:MUT,border:`1px solid ${tab===t.key?WHT:BOR}`,padding:"6px 14px",borderRadius:"7px",cursor:"pointer",fontSize:"12px",fontWeight:tab===t.key?"700":"400"}}>
+                style={{background:tab===t.key?AMB:"transparent",color:tab===t.key?BG:MUT,border:`1px solid ${tab===t.key?WHT:BOR}`,padding:"6px 14px",borderRadius:"0",cursor:"pointer",fontSize:"12px",fontWeight:tab===t.key?"700":"400"}}>
                 {t.label}
               </button>
             ))}
@@ -1400,7 +1403,7 @@ export default function App() {
           <div style={{display:"flex",alignItems:"center",gap:"8px"}}>
             <div style={{width:"28px",height:"28px",borderRadius:"50%",background:MUT2,border:`1px solid ${BOR}`,display:"flex",alignItems:"center",justifyContent:"center",color:WHT,fontWeight:"700",fontSize:"12px"}}>{activeUser.charAt(0).toUpperCase()}</div>
             <span style={{color:MUT,fontSize:"12px"}}>{activeUser}</span>
-            <button onClick={switchUser} style={{background:"transparent",color:MUT,border:`1px solid ${BOR}`,padding:"4px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"11px"}}>Switch</button>
+            <button onClick={switchUser} style={{background:"transparent",color:MUT,border:`1px solid ${BOR}`,padding:"4px 10px",borderRadius:"0",cursor:"pointer",fontSize:"11px"}}>Switch</button>
           </div>
         </div>
       )}
@@ -1408,7 +1411,7 @@ export default function App() {
       {/* MOBILE TOP BAR */}
       {M && (
         <div style={{background:SURF,borderBottom:`1px solid ${BOR}`,padding:"12px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
-          <div style={{color:WHT,fontFamily:"monospace",fontSize:"16px",fontWeight:"700",letterSpacing:"3px"}}>TOP 1%</div>
+          <div style={{color:WHT,fontFamily:"'JetBrains Mono',monospace",fontSize:"13px",fontWeight:"200",letterSpacing:".02em"}}>top_1%</div>
           <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
             <span style={{color:MUT,fontSize:"12px"}}>{settings.traderName}</span>
             <div style={{width:"30px",height:"30px",borderRadius:"50%",background:MUT2,border:`1px solid ${BOR}`,display:"flex",alignItems:"center",justifyContent:"center",color:WHT,fontWeight:"700",fontSize:"13px"}}>{activeUser.charAt(0).toUpperCase()}</div>
@@ -1435,7 +1438,7 @@ export default function App() {
             </button>
           ))}
           <button onClick={()=>setShowMore(s=>!s)}
-            style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",padding:"10px 0",background:"transparent",border:"none",cursor:"pointer",color:showMore||MORE_TABS.some(t=>t.key===tab)?WHT:MUT,minHeight:"60px"}}>
+            style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:"3px",padding:"10px 0",background:"transparent",border:"none",cursor:"pointer",color:showMore||MORE_TABS.some(t=>t.key===tab)?AMB:MUT,minHeight:"60px"}}>
             <span style={{fontSize:"20px",lineHeight:1}}>⋯</span>
             <span style={{fontSize:"9px",fontWeight:showMore?"700":"400"}}>More</span>
           </button>
