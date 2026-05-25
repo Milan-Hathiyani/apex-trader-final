@@ -147,7 +147,8 @@ export default function App() {
   const [importMsg,   setImportMsg]   = useState("");
   const [tSearch,  setTSearch]  = useState("");
   const DEF_TAB_ORDER = ["dashboard","journal","trades","checklist","risk","plan","analytics","review","customize","settings"];
-  const [tabOrder, setTabOrder] = useState(() => lsGet("top1pct_tabOrder") || DEF_TAB_ORDER);
+  const [tabOrder,    setTabOrder]    = useState(() => lsGet("top1pct_tabOrder") || DEF_TAB_ORDER);
+  const [sectionMins, setSectionMins] = useState({});
   const [tFInstr,  setTFInstr]  = useState("All");
   const [tFType,   setTFType]   = useState("All");
   const [tFDir,    setTFDir]    = useState("All");
@@ -213,12 +214,14 @@ export default function App() {
         if(sbC.emotions){setEmotions(sbC.emotions);lsSet(uk("emotions"),sbC.emotions);}else setEmotions(lsGet(uk("emotions"))||DEF_EMOTIONS);
         if(sbC.trade_types){setTradeTypes(sbC.trade_types);lsSet(uk("tradeTypes"),sbC.trade_types);}else setTradeTypes(lsGet(uk("tradeTypes"))||DEF_TYPES);
         if(sbC.checks){setChecks(sbC.checks);lsSet(uk("checks"),sbC.checks);}else setChecks(lsGet(uk("checks"))||DEF_CHECKS);
+        const sm=lsGet(uk("sectionMins")); if(sm) setSectionMins(sm);
       } else {
         setInstruments(lsGet(uk("instruments"))||DEF_INSTRUMENTS);
         setSetups(lsGet(uk("setups"))||DEF_SETUPS);
         setEmotions(lsGet(uk("emotions"))||DEF_EMOTIONS);
         setTradeTypes(lsGet(uk("tradeTypes"))||DEF_TYPES);
         setChecks(lsGet(uk("checks"))||DEF_CHECKS);
+        const sm=lsGet(uk("sectionMins")); if(sm) setSectionMins(sm);
       }
     })();
   }, [activeUser]);
@@ -283,6 +286,10 @@ export default function App() {
 
   // ── DERIVED DATA ──────────────────────────────────────────
   const ALL_CHECKS = Object.values(checks).flat();
+  const getMin = (sec) => { const v=sectionMins[sec]; return (v!==undefined&&v!==null) ? Number(v) : (checks[sec]?.length||0); };
+  const getSectionChecked = (sec, si) => { const start=Object.values(checks).slice(0,si).flat().length; return checks[sec].filter((_,i)=>ck[start+i]).length; };
+  const allGreen = Object.entries(checks).every(([sec],si) => getSectionChecked(sec,si) >= getMin(sec));
+  const checkedCt = ALL_CHECKS.filter((_,i)=>ck[i]).length;
   const intraday = trades.filter(t=>t.tradeType==="Intraday");
   const swing    = trades.filter(t=>t.tradeType!=="Intraday");
 
@@ -296,7 +303,6 @@ export default function App() {
   const allSt=calcStats(trades),idSt=calcStats(intraday),swSt=calcStats(swing);
   const todayPnl=trades.filter(t=>t.date===todayStr()&&t.pnl!=="").reduce((s,t)=>s+parseFloat(t.pnl),0);
   const weekPnl=(()=>{const ws=new Date();ws.setDate(ws.getDate()-ws.getDay());return trades.filter(t=>t.pnl!==""&&new Date(t.date)>=ws).reduce((s,t)=>s+parseFloat(t.pnl),0);})();
-  const checkedCt=ALL_CHECKS.filter((_,i)=>ck[i]).length,allGreen=checkedCt===ALL_CHECKS.length;
   const rcRiskAmt=rc.riskType==="major"?rc.capital*(settings.majorRisk/100):rc.riskType==="drawdown"?rc.capital*(settings.drawdownRisk/100):rc.capital*(settings.baseRisk/100);
   const rcResult=(()=>{const e=parseFloat(rc.entry),s=parseFloat(rc.sl);if(!rc.entry||!rc.sl||isNaN(e)||isNaN(s))return null;const sl=Math.abs(e-s);if(!sl)return null;const dir=e>s?1:-1;return{risk:Math.round(rcRiskAmt),slDist:sl.toFixed(4),size:(rcRiskAmt/sl).toFixed(2),tp:(e+dir*sl*parseFloat(rc.rr)).toFixed(4)};})();
   const pnlCurve  =(list)=>{let c=0;return[...list].reverse().filter(t=>t.pnl!=="").map((t,i)=>{c+=parseFloat(t.pnl);return{n:i+1,v:Math.round(c)};});};
@@ -394,9 +400,9 @@ export default function App() {
           {label:"Profit Factor",val:allSt.pf,            color:WHT,               sub:`Avg RR: ${allSt.avgRR}`},
         ].map(x=>(
           <div key={x.label} style={{background:SURF,border:`1px solid ${BOR}`,borderRadius:"12px",padding:"16px",textAlign:"center"}}>
-            <div style={{color:x.color,fontSize:M?"24px":"28px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
-            <div style={{color:MUT,fontSize:"12px",marginTop:"5px"}}>{x.label}</div>
-            <div style={{color:MUT2,fontSize:"11px",marginTop:"3px"}}>{x.sub}</div>
+            <div style={{color:x.color,fontSize:M?"26px":"40px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
+            <div style={{color:MUT,fontSize:M?"12px":"14px",marginTop:"5px"}}>{x.label}</div>
+            <div style={{color:MUT2,fontSize:M?"11px":"13px",marginTop:"3px"}}>{x.sub}</div>
           </div>
         ))}
       </div>
@@ -421,8 +427,8 @@ export default function App() {
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px"}}>
             {[{label:"Intraday Win %",val:idSt.winRate+"%"},{label:"Swing Win %",val:swSt.winRate+"%"},{label:"Intraday Trades",val:idSt.total},{label:"Swing Trades",val:swSt.total}].map(x=>(
               <div key={x.label} style={{background:CARD,borderRadius:"10px",padding:"12px"}}>
-                <div style={{color:WHT,fontSize:"22px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
-                <div style={{color:MUT,fontSize:"12px",marginTop:"2px"}}>{x.label}</div>
+                <div style={{color:WHT,fontSize:M?"20px":"28px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
+                <div style={{color:MUT,fontSize:M?"12px":"13px",marginTop:"2px"}}>{x.label}</div>
               </div>
             ))}
           </div>
@@ -556,20 +562,41 @@ export default function App() {
   // ── CHECKLIST ─────────────────────────────────────────────
   const renderChecklist = () => {
     let idx=0;
+    const totalRequired=Object.entries(checks).reduce((s,[sec])=>s+getMin(sec),0);
+    const totalChecked=Object.entries(checks).reduce((s,[sec],si)=>s+getSectionChecked(sec,si),0);
     return(<div>
       <div style={{...card(),borderColor:allGreen?GR:BOR,textAlign:"center"}}>
-        <div style={{color:allGreen?GR:WHT,fontSize:"36px",fontWeight:"700",fontFamily:"monospace"}}>{checkedCt} / {ALL_CHECKS.length}</div>
-        <div style={{color:MUT,fontSize:"12px",marginBottom:"12px"}}>checks completed</div>
-        <div style={{background:MUT2,borderRadius:"4px",height:"6px"}}><div style={{background:allGreen?GR:WHT,width:`${(checkedCt/ALL_CHECKS.length)*100}%`,height:"6px",borderRadius:"4px",transition:"width 0.3s"}}/></div>
-        {allGreen?<div style={{color:GR,marginTop:"12px",fontWeight:"700",fontSize:"14px"}}>✓ ALL CLEAR — READY TO TRADE</div>:<div style={{color:MUT,marginTop:"12px",fontSize:"13px"}}>Complete all checks before entering</div>}
+        <div style={{color:allGreen?GR:WHT,fontSize:"36px",fontWeight:"700",fontFamily:"monospace"}}>{totalChecked} / {totalRequired}</div>
+        <div style={{color:MUT,fontSize:"12px",marginBottom:"12px"}}>required checks completed</div>
+        <div style={{background:MUT2,borderRadius:"4px",height:"6px"}}><div style={{background:allGreen?GR:WHT,width:`${Math.min(100,totalRequired?(totalChecked/totalRequired)*100:0)}%`,height:"6px",borderRadius:"4px",transition:"width 0.3s"}}/></div>
+        {allGreen?<div style={{color:GR,marginTop:"12px",fontWeight:"700",fontSize:"14px"}}>✓ ALL CLEAR — READY TO TRADE</div>:<div style={{color:MUT,marginTop:"12px",fontSize:"13px"}}>Complete minimum checks in each section</div>}
       </div>
-      {Object.entries(checks).map(([section,items])=>{
+      {Object.entries(checks).map(([section,items],si)=>{
         const start=idx;idx+=items.length;
-        return(<div key={section} style={card()}>
-          <div style={h2sty}>{section}</div>
+        const secChecked=getSectionChecked(section,si);
+        const minReq=getMin(section);
+        const secDone=secChecked>=minReq;
+        return(<div key={section} style={{...card(),borderLeft:`3px solid ${secDone?GR:BOR}`}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px",gap:"10px",flexWrap:"wrap"}}>
+            <div style={h2sty}>{section}</div>
+            <div style={{display:"flex",alignItems:"center",gap:"8px",flexShrink:0}}>
+              <span style={{color:secDone?GR:MUT,fontSize:"12px",fontFamily:"monospace",fontWeight:"700"}}>{secChecked}/{items.length}</span>
+              <div style={{display:"flex",alignItems:"center",gap:"5px",background:CARD,border:`1px solid ${BOR}`,borderRadius:"8px",padding:"5px 10px"}}>
+                <span style={{color:MUT,fontSize:"11px"}}>Min:</span>
+                <input type="number" min="0" max={items.length} value={minReq}
+                  onChange={e=>{const val=Math.min(items.length,Math.max(0,parseInt(e.target.value)||0));const u={...sectionMins,[section]:val};setSectionMins(u);lsSet(uk("sectionMins"),u);}}
+                  style={{width:"36px",background:"transparent",border:"none",color:WHT,fontSize:"13px",fontWeight:"700",textAlign:"center",outline:"none"}}/>
+                <span style={{color:MUT,fontSize:"11px"}}>/ {items.length}</span>
+              </div>
+              {secDone&&<span style={{color:GR,fontSize:"16px"}}>✓</span>}
+            </div>
+          </div>
+          <div style={{background:MUT2,borderRadius:"3px",height:"3px",marginBottom:"10px"}}>
+            <div style={{background:secDone?GR:WHT,width:`${(secChecked/items.length)*100}%`,height:"3px",borderRadius:"3px",transition:"width 0.2s"}}/>
+          </div>
           {items.map((item,i)=>{const gi=start+i,checked=!!ck[gi];return(
             <div key={item} onClick={()=>setCk(c=>({...c,[gi]:!c[gi]}))}
-              style={{display:"flex",alignItems:"center",gap:"12px",padding:"14px",borderRadius:"10px",cursor:"pointer",marginBottom:"6px",background:checked?"#001a0d":CARD,border:`1px solid ${checked?GR:BOR}`,minHeight:"52px"}}>
+              style={{display:"flex",alignItems:"center",gap:"12px",padding:"13px",borderRadius:"10px",cursor:"pointer",marginBottom:"6px",background:checked?"#001a0d":CARD,border:`1px solid ${checked?GR:BOR}`,minHeight:"50px"}}>
               <div style={{width:"22px",height:"22px",borderRadius:"5px",flexShrink:0,border:`2px solid ${checked?GR:MUT2}`,background:checked?GR:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>
                 {checked&&<span style={{color:BG,fontSize:"13px",fontWeight:"900"}}>✓</span>}
               </div>
@@ -1114,6 +1141,80 @@ export default function App() {
         <div style={h2sty}>📋 Trade Rules</div>
         <div style={g2}>{nf("Max Intraday Trades/Day","maxIntraday",1)}{nf("Minimum R:R","minRR",0.5)}</div>
       </div>
+      {/* Checklist Requirements */}
+      <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"6px"}}>
+          <div style={h2sty}>✅ Checklist Requirements</div>
+          <button onClick={()=>{setSectionMins({});lsSet(uk("sectionMins"),{});}} style={btnGh({padding:"6px 12px",fontSize:"11px"})}>Reset All</button>
+        </div>
+        <div style={{color:MUT,fontSize:"12px",marginBottom:"14px"}}>Set the minimum number of items you must tick in each section before you can trade. Leave at max to require all.</div>
+        {Object.entries(checks).map(([section,items],si)=>{
+          const minReq = getMin(section);
+          const pct    = (minReq/items.length)*100;
+          return(
+            <div key={section} style={{background:CARD,borderRadius:"10px",padding:"14px",marginBottom:"10px"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px",gap:"10px",flexWrap:"wrap"}}>
+                <span style={{color:WHT,fontSize:"13px",fontWeight:"600"}}>{section}</span>
+                <span style={{color:MUT,fontSize:"11px"}}>{items.length} items total</span>
+              </div>
+
+              {/* Visual slider row */}
+              <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"10px"}}>
+                <span style={{color:MUT,fontSize:"12px",minWidth:"12px"}}>0</span>
+                <div style={{flex:1,position:"relative",height:"24px",display:"flex",alignItems:"center"}}>
+                  <div style={{width:"100%",background:MUT2,borderRadius:"4px",height:"6px"}}>
+                    <div style={{background:GR,width:`${pct}%`,height:"6px",borderRadius:"4px",transition:"width 0.2s"}}/>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max={items.length}
+                    value={minReq}
+                    onChange={e=>{
+                      const val=parseInt(e.target.value);
+                      const u={...sectionMins,[section]:val};
+                      setSectionMins(u); lsSet(uk("sectionMins"),u);
+                    }}
+                    style={{position:"absolute",width:"100%",opacity:0,cursor:"pointer",height:"24px",margin:0}}
+                  />
+                </div>
+                <span style={{color:MUT,fontSize:"12px",minWidth:"12px"}}>{items.length}</span>
+              </div>
+
+              {/* Current value display */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex",gap:"4px"}}>
+                  {items.map((_,i)=>(
+                    <div key={i} style={{width:"10px",height:"10px",borderRadius:"50%",background:i<minReq?GR:MUT2,transition:"background 0.15s"}}/>
+                  ))}
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                  <span style={{color:GR,fontSize:"14px",fontWeight:"700",fontFamily:"monospace"}}>{minReq}</span>
+                  <span style={{color:MUT,fontSize:"12px"}}>/ {items.length} required</span>
+                  {minReq===items.length && <span style={{color:MUT,fontSize:"11px"}}>(all)</span>}
+                  {minReq===0 && <span style={{color:RD,fontSize:"11px"}}>(none)</span>}
+                </div>
+              </div>
+
+              {/* Quick preset buttons */}
+              <div style={{display:"flex",gap:"6px",marginTop:"10px"}}>
+                {[
+                  {label:"None", val:0},
+                  {label:"Half", val:Math.ceil(items.length/2)},
+                  {label:"Most", val:Math.ceil(items.length*0.75)},
+                  {label:"All",  val:items.length},
+                ].map(p=>(
+                  <button key={p.label} onClick={()=>{const u={...sectionMins,[section]:p.val};setSectionMins(u);lsSet(uk("sectionMins"),u);}}
+                    style={{flex:1,background:minReq===p.val?WHT:CARD,color:minReq===p.val?BG:MUT,border:`1px solid ${minReq===p.val?WHT:BOR}`,padding:"6px 0",borderRadius:"7px",cursor:"pointer",fontSize:"11px",fontWeight:minReq===p.val?"700":"400",minHeight:"32px"}}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
       {/* Import */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
         <div style={h2sty}>📥 Import Trades</div>
