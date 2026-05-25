@@ -269,22 +269,152 @@ export default function App() {
   const saveSettings= () => { pSettings(draft); setRc(r=>({...r,capital:draft.capital})); setSavedMsg("✓ Settings saved"); setTimeout(()=>setSavedMsg(""),2500); };
 
   // ── IMPORT ────────────────────────────────────────────────
-  const importTrades = (file) => {
-    if(!file)return;
-    const reader=new FileReader();
-    reader.onload=(e)=>{
-      try {
-        const imported=JSON.parse(e.target.result);
-        if(!Array.isArray(imported))throw new Error("Invalid format");
-        const existingIds=new Set(trades.map(t=>String(t.id)));
-        const newTrades=imported.filter(t=>!existingIds.has(String(t.id)));
-        const merged=[...newTrades,...trades].sort((a,b)=>b.date.localeCompare(a.date));
-        pTrades(merged);
-        setSavedMsg(`✓ Imported ${newTrades.length} trades (${imported.length-newTrades.length} duplicates skipped)`);
-        setTimeout(()=>setSavedMsg(""),4000);
-      } catch(err){ alert("Invalid file. Please upload a valid JSON import file."); }
+  const [importStatus, setImportStatus] = useState(null); // {done, added, skipped, error}
+
+  const doMerge = (imported) => {
+    if (!Array.isArray(imported)) throw new Error("Invalid format");
+    const existingIds = new Set(trades.map(t => String(t.id)));
+    const newTrades   = imported.filter(t => !existingIds.has(String(t.id)));
+    const merged      = [...newTrades, ...trades].sort((a,b) => b.date.localeCompare(a.date));
+    pTrades(merged);
+    setImportStatus({ done:true, added:newTrades.length, skipped:imported.length-newTrades.length });
+    setTimeout(() => setImportStatus(null), 5000);
+  };
+
+  // Import JSON
+  const importJSON = (file) => {
+    if (!file) return;
+    setImportStatus({ loading: true, msg: "Reading JSON..." });
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try { doMerge(JSON.parse(e.target.result)); }
+      catch(err) { setImportStatus({ error: "Invalid JSON file." }); }
     };
     reader.readAsText(file);
+  };
+
+  // Import Zerodha Excel tradebook
+  const importExcel = async (file) => {
+    if (!file) return;
+    setImportStatus({ loading: true, msg: "Parsing Excel..." });
+    try {
+      const XLSX = await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm");
+      const buf  = await file.arrayBuffer();
+      const wb   = XLSX.read(buf, { type:"array", cellDates:true });
+      const sheet= wb.SheetNames[0];
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header:1, raw:false });
+
+      // Find header row
+      let hRow = -1;
+      for (let i=0; i<rows.length; i++) {
+        if (rows[i].includes("Symbol") && rows[i].includes("Trade Type")) { hRow=i; break; }
+      }
+      if (hRow < 0) { setImportStatus({ error:"Could not find header row. Is this a Zerodha tradebook?" }); return; }
+
+      const headers = rows[hRow];
+      const col = (name) => headers.findIndex(h => String(h).trim() === name);
+      const iSym=col("Symbol"), iType=col("Trade Type"), iPrice=col("Price"),
+            iQty=col("Quantity"), iTime=col("Order Execution Time"), iDate=col("Trade Date");
+      if ([iSym,iType,iPrice,iQty,iTime].some(i=>i<0)) {
+        setImportStatus({ error:"Missing columns. Check file format." }); return;
+      }
+
+      // Build rows
+      const data = rows.slice(hRow+1).map(r => ({
+        symbol:    String(r[iSym]||"").trim(),
+        type:      String(r[iType]||"").trim().toLowerCase(),
+        price:     parseFloat(r[iPrice]||0),
+        qty:       parseInt(r[iQty]||0),
+        time:      r[iTime],
+        date:      r[iDate] || r[iTime],
+      })).filter(r => r.symbol.length > 2 && r.price > 0);
+
+      // Map instrument
+      const mapInstr = (s) => {
+        const u = s.toUpperCase();
+        if (u.includes("GOLDPETAL"))  return "Gold Petal";
+        if (u.includes("GOLD"))       return "Gold";
+        if (u.match(/SILVERM|SILVERMIC/)) return "Silver Mini";
+        if (u.includes("SILVER"))    return "Silver";
+        if (u.includes("CRUDEOILM")) return "Crude Oil Mini";
+        if (u.includes("CRUDEOIL"))  return "Crude Oil";
+        if (u.includes("NATGASMINI") || (u.includes("NATURALGAS") && u.includes("MINI"))) return "Natural Gas Mini";
+        if (u.includes("NATURALGAS")) return "Natural Gas";
+        if (u.includes("LEADMINI"))  return "Lead Mini";
+        if (u.includes("LEAD"))      return "Lead";
+        if (u.includes("ZINCMINI"))  return "Zinc Mini";
+        if (u.includes("ZINC"))      return "Zinc";
+        if (u.match(/COPPERMINI|COPPERMIC/)) return "Copper Mini";
+        if (u.includes("COPPER"))    return "Copper";
+        if (u.match(/ALUMINI|ALUMINIM/)) return "Aluminium Mini";
+        if (u.includes("ALUMINIUM")) return "Aluminium";
+        if (u.includes("NICKEL"))    return "Nickel";
+        if (u.includes("BANKNIFTY")) return "BankNifty";
+        if (u.includes("BANKEX"))    return "Bankex";
+        if (u.includes("FINNIFTY"))  return "FinNifty";
+        if (u.includes("MIDCPNIFTY")) return "MidcapNifty";
+        if (u.includes("NIFTY"))     return "Nifty";
+        if (u.includes("SENSEX"))    return "Sensex";
+        const mFut = u.match(/^([A-Z&]+)\d{2}[A-Z]{3}FUT$/);
+        if (mFut) return mFut[1] + " Futures";
+        const mOpt = u.match(/^([A-Z&]+)\d+[A-Z]{3}\d+[CP]E$/);
+        if (mOpt) return mOpt[1] + " Options";
+        return s;
+      };
+
+      // Group by symbol, FIFO match
+      const groups = {};
+      for (const r of data) {
+        if (!groups[r.symbol]) groups[r.symbol] = [];
+        groups[r.symbol].push(r);
+      }
+
+      const imported = [];
+      const fname = file.name;
+      const year  = fname.match(/\d{4}-\d{4}/)?.[0] || "unknown";
+      const seg   = fname.includes("COM") ? "COM" : "FnO";
+
+      for (const [symbol, legs] of Object.entries(groups)) {
+        const sorted = [...legs].sort((a,b) => new Date(a.time)-new Date(b.time));
+        const buys   = sorted.filter(r => r.type==="buy");
+        const sells  = sorted.filter(r => r.type==="sell");
+        if (!buys.length || !sells.length) continue;
+        const direction = sorted[0].type==="buy" ? "Long" : "Short";
+        const instrument = mapInstr(symbol);
+        const setup = symbol.toUpperCase().endsWith("CE") && direction==="Short" ? "Nifty Straddle"
+                    : symbol.toUpperCase().endsWith("PE") && direction==="Short" ? "Nifty Strangle"
+                    : direction==="Long" ? "Buy at Support" : "Sell at Resistance";
+        const n = Math.min(buys.length, sells.length);
+        for (let i=0; i<n; i++) {
+          const b=buys[i], s=sells[i];
+          const ep = direction==="Long" ? b.price : s.price;
+          const xp = direction==="Long" ? s.price : b.price;
+          const et = direction==="Long" ? b.time  : s.time;
+          const qty = b.qty;
+          const pnl = Math.round(((direction==="Long" ? xp-ep : ep-xp) * qty) * 100) / 100;
+          const intra = String(b.date).slice(0,10) === String(s.date).slice(0,10);
+          const etDate = new Date(et);
+          const uid = Math.abs(
+            [...`${symbol}_${et}_${ep}_${qty}_${direction}`].reduce((h,c)=>(h*31+c.charCodeAt(0))|0,0)
+          ) % 1e12;
+          imported.push({
+            id: uid,
+            date: etDate.toISOString().slice(0,10),
+            time: etDate.toTimeString().slice(0,5),
+            instrument, tradeType: intra?"Intraday":"Swing",
+            direction, setup,
+            entry: String(ep), sl:"", exitPrice: String(xp),
+            size: String(qty), riskAmount:"", pnl: String(pnl),
+            rrAchieved:"", grade:"", followedRules:"", emotion:"",
+            mistakes:"", improvements:"",
+            notes: `Zerodha ${seg} ${year} | ${symbol}`,
+          });
+        }
+      }
+      doMerge(imported);
+    } catch(err) {
+      setImportStatus({ error: "Failed to parse Excel: " + err.message });
+    }
   };
 
   // ── DERIVED DATA ──────────────────────────────────────────
@@ -1368,12 +1498,37 @@ export default function App() {
       {/* Import */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
         <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>import trades</div>
-        <div style={{color:MUT,fontSize:"12px",marginBottom:"12px"}}>Import your Zerodha tradebook JSON. Duplicate trades are automatically skipped.</div>
-        <label style={{display:"block",background:CARD,border:`2px dashed ${BOR}`,borderRadius:"0",padding:"20px",textAlign:"center",cursor:"pointer"}}>
-          <div style={{color:WHT,fontSize:"14px",fontWeight:"700",marginBottom:"4px"}}>📁 Choose JSON file</div>
-          <div style={{color:MUT,fontSize:"12px"}}>zerodha_trades_import.json</div>
-          <input type="file" accept=".json" style={{display:"none"}} onChange={e=>importTrades(e.target.files[0])}/>
-        </label>
+        <div style={{color:MUT,fontSize:"12px",marginBottom:"16px",lineHeight:1.7}}>Upload directly from Zerodha. Duplicates skipped automatically.</div>
+        {importStatus&&(
+          <div style={{padding:"12px 16px",marginBottom:"14px",
+            background:importStatus.error?"rgba(168,90,82,0.1)":importStatus.loading?"rgba(212,167,71,0.08)":"rgba(107,158,107,0.1)",
+            border:`1px solid ${importStatus.error?RD:importStatus.loading?AMB:GR}`,
+            color:importStatus.error?RD:importStatus.loading?AMB:GR,fontSize:"13px"}}>
+            {importStatus.loading&&`⟳ ${importStatus.msg||"Processing..."}`}
+            {importStatus.done&&`✓ Added ${importStatus.added} trades · ${importStatus.skipped} duplicates skipped`}
+            {importStatus.error&&`✗ ${importStatus.error}`}
+          </div>
+        )}
+        <div style={{display:"grid",gridTemplateColumns:M?"1fr":"1fr 1fr",gap:"12px"}}>
+          <label style={{display:"block",background:CARD,border:`1px solid ${BOR}`,padding:"20px",textAlign:"center",cursor:"pointer"}}>
+            <div style={{fontSize:"22px",marginBottom:"8px",color:AMB}}>↑</div>
+            <div style={{color:WHT,fontSize:"12px",marginBottom:"4px",textTransform:"uppercase",letterSpacing:".12em"}}>Upload Excel</div>
+            <div style={{color:MUT,fontSize:"11px",marginBottom:"2px"}}>Zerodha tradebook .xlsx</div>
+            <div style={{color:MUT2,fontSize:"10px"}}>auto-parsed · duplicates skipped</div>
+            <input type="file" accept=".xlsx,.xls" style={{display:"none"}} onChange={e=>{if(e.target.files[0])importExcel(e.target.files[0]);e.target.value="";}}/>
+          </label>
+          <label style={{display:"block",background:CARD,border:`1px solid ${BOR}`,padding:"20px",textAlign:"center",cursor:"pointer"}}>
+            <div style={{fontSize:"22px",marginBottom:"8px",color:AMB}}>↑</div>
+            <div style={{color:WHT,fontSize:"12px",marginBottom:"4px",textTransform:"uppercase",letterSpacing:".12em"}}>Upload JSON</div>
+            <div style={{color:MUT,fontSize:"11px",marginBottom:"2px"}}>Pre-parsed import file</div>
+            <div style={{color:MUT2,fontSize:"10px"}}>zerodha_trades_import.json</div>
+            <input type="file" accept=".json" style={{display:"none"}} onChange={e=>{if(e.target.files[0])importJSON(e.target.files[0]);e.target.value="";}}/>
+          </label>
+        </div>
+        <div style={{marginTop:"14px",padding:"12px",background:CARD,border:`1px solid ${BOR}`,fontSize:"11px",color:MUT,lineHeight:1.8}}>
+          <span style={{color:AMB}}>How to get Zerodha tradebook:</span><br/>
+          Console → Reports → Tradebook → Select year → Download Excel
+        </div>
       </div>
       {/* Export */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
