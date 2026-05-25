@@ -30,7 +30,7 @@ const DEF_CHECKS = {
 };
 const GRADES = ["A+","A","B","C"];
 const MENTAL = ["Excellent","Good","Neutral","Poor","Terrible"];
-const DEFAULT_SETTINGS = { traderName:"Trader", capital:1000000, baseRisk:0.3, majorRisk:1.0, drawdownRisk:0.15, dailyLimit:30000, weeklyLimit:75000, monthlyLimit:200000, maxIntraday:4, minRR:2 };
+const DEFAULT_SETTINGS = { traderName:"Trader", capital:1000000, baseRisk:0.3, majorRisk:1.0, drawdownRisk:0.15, dailyLimit:30000, weeklyLimit:75000, monthlyLimit:200000, maxIntraday:4, minRR:2, textScale:1 };
 
 // ── HELPERS ──────────────────────────────────────────────────
 const fmt = (n) => new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(n||0);
@@ -287,9 +287,10 @@ export default function App() {
   // ── DERIVED DATA ──────────────────────────────────────────
   const ALL_CHECKS = Object.values(checks).flat();
   const getMin = (sec) => { const v=sectionMins[sec]; return (v!==undefined&&v!==null) ? Number(v) : (checks[sec]?.length||0); };
-  const getSectionChecked = (sec, si) => { const start=Object.values(checks).slice(0,si).flat().length; return checks[sec].filter((_,i)=>ck[start+i]).length; };
+  const getSectionChecked = (sec, si) => { const start=Object.values(checks).slice(0,si).flat().length; return checks[sec].filter((_,i)=>ck[start+i]==="yes").length; };
+  const getSectionPct = (sec, si) => { const total=checks[sec]?.length||1; return Math.round((getSectionChecked(sec,si)/total)*100); };
   const allGreen = Object.entries(checks).every(([sec],si) => getSectionChecked(sec,si) >= getMin(sec));
-  const checkedCt = ALL_CHECKS.filter((_,i)=>ck[i]).length;
+  const checkedCt = ALL_CHECKS.filter((_,i)=>ck[i]==="yes").length;
   const intraday = trades.filter(t=>t.tradeType==="Intraday");
   const swing    = trades.filter(t=>t.tradeType!=="Intraday");
 
@@ -562,50 +563,117 @@ export default function App() {
   // ── CHECKLIST ─────────────────────────────────────────────
   const renderChecklist = () => {
     let idx=0;
-    const totalRequired=Object.entries(checks).reduce((s,[sec])=>s+getMin(sec),0);
-    const totalChecked=Object.entries(checks).reduce((s,[sec],si)=>s+getSectionChecked(sec,si),0);
+    const totalItems    = ALL_CHECKS.length;
+    const totalYes      = ALL_CHECKS.filter((_,i)=>ck[i]==="yes").length;
+    const totalNo       = ALL_CHECKS.filter((_,i)=>ck[i]==="no").length;
+    const totalRequired = Object.entries(checks).reduce((s,[sec])=>s+getMin(sec),0);
+    const totalChecked  = Object.entries(checks).reduce((s,[sec],si)=>s+getSectionChecked(sec,si),0);
+    const overallPct    = totalRequired > 0 ? Math.round((totalChecked/totalRequired)*100) : 0;
+
     return(<div>
-      <div style={{...card(),borderColor:allGreen?GR:BOR,textAlign:"center"}}>
-        <div style={{color:allGreen?GR:WHT,fontSize:"36px",fontWeight:"700",fontFamily:"monospace"}}>{totalChecked} / {totalRequired}</div>
-        <div style={{color:MUT,fontSize:"12px",marginBottom:"12px"}}>required checks completed</div>
-        <div style={{background:MUT2,borderRadius:"4px",height:"6px"}}><div style={{background:allGreen?GR:WHT,width:`${Math.min(100,totalRequired?(totalChecked/totalRequired)*100:0)}%`,height:"6px",borderRadius:"4px",transition:"width 0.3s"}}/></div>
-        {allGreen?<div style={{color:GR,marginTop:"12px",fontWeight:"700",fontSize:"14px"}}>✓ ALL CLEAR — READY TO TRADE</div>:<div style={{color:MUT,marginTop:"12px",fontSize:"13px"}}>Complete minimum checks in each section</div>}
+      {/* Overall banner */}
+      <div style={{...card(),borderColor:allGreen?GR:BOR,padding:"24px",textAlign:"center"}}>
+        {/* Big percentage */}
+        <div style={{color:allGreen?GR:WHT,fontSize:"72px",fontWeight:"700",fontFamily:"monospace",lineHeight:1}}>{overallPct}%</div>
+        <div style={{color:MUT,fontSize:"13px",marginTop:"6px",marginBottom:"16px"}}>of required checks completed</div>
+
+        {/* Progress bar */}
+        <div style={{background:MUT2,borderRadius:"6px",height:"10px",overflow:"hidden",marginBottom:"12px"}}>
+          <div style={{display:"flex",height:"10px"}}>
+            <div style={{background:allGreen?GR:WHT,width:`${Math.min(100,overallPct)}%`,transition:"width 0.4s",borderRadius:"6px"}}/>
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div style={{display:"flex",justifyContent:"center",gap:"24px",marginBottom:"12px"}}>
+          <div style={{textAlign:"center"}}>
+            <div style={{color:GR,fontSize:"22px",fontWeight:"700",fontFamily:"monospace"}}>{totalYes}</div>
+            <div style={{color:MUT,fontSize:"11px"}}>YES</div>
+          </div>
+          <div style={{width:"1px",background:BOR}}/>
+          <div style={{textAlign:"center"}}>
+            <div style={{color:RD,fontSize:"22px",fontWeight:"700",fontFamily:"monospace"}}>{totalNo}</div>
+            <div style={{color:MUT,fontSize:"11px"}}>NO</div>
+          </div>
+          <div style={{width:"1px",background:BOR}}/>
+          <div style={{textAlign:"center"}}>
+            <div style={{color:MUT,fontSize:"22px",fontWeight:"700",fontFamily:"monospace"}}>{totalItems-totalYes-totalNo}</div>
+            <div style={{color:MUT,fontSize:"11px"}}>Pending</div>
+          </div>
+          <div style={{width:"1px",background:BOR}}/>
+          <div style={{textAlign:"center"}}>
+            <div style={{color:WHT,fontSize:"22px",fontWeight:"700",fontFamily:"monospace"}}>{totalChecked}/{totalRequired}</div>
+            <div style={{color:MUT,fontSize:"11px"}}>Required</div>
+          </div>
+        </div>
+
+        {allGreen
+          ? <div style={{color:GR,fontWeight:"700",fontSize:"15px",padding:"10px",background:GR+"11",borderRadius:"8px"}}>✓ ALL CLEAR — READY TO TRADE</div>
+          : <div style={{color:MUT,fontSize:"13px"}}>{totalRequired - totalChecked} more required check{totalRequired-totalChecked!==1?"s":""} needed</div>}
       </div>
+
+      {/* Sections */}
       {Object.entries(checks).map(([section,items],si)=>{
-        const start=idx;idx+=items.length;
-        const secChecked=getSectionChecked(section,si);
-        const minReq=getMin(section);
-        const secDone=secChecked>=minReq;
-        return(<div key={section} style={{...card(),borderLeft:`3px solid ${secDone?GR:BOR}`}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px",gap:"10px",flexWrap:"wrap"}}>
-            <div style={h2sty}>{section}</div>
-            <div style={{display:"flex",alignItems:"center",gap:"8px",flexShrink:0}}>
-              <span style={{color:secDone?GR:MUT,fontSize:"12px",fontFamily:"monospace",fontWeight:"700"}}>{secChecked}/{items.length}</span>
-              <div style={{display:"flex",alignItems:"center",gap:"5px",background:CARD,border:`1px solid ${BOR}`,borderRadius:"8px",padding:"5px 10px"}}>
-                <span style={{color:MUT,fontSize:"11px"}}>Min:</span>
-                <input type="number" min="0" max={items.length} value={minReq}
-                  onChange={e=>{const val=Math.min(items.length,Math.max(0,parseInt(e.target.value)||0));const u={...sectionMins,[section]:val};setSectionMins(u);lsSet(uk("sectionMins"),u);}}
-                  style={{width:"36px",background:"transparent",border:"none",color:WHT,fontSize:"13px",fontWeight:"700",textAlign:"center",outline:"none"}}/>
-                <span style={{color:MUT,fontSize:"11px"}}>/ {items.length}</span>
+        const start      = idx; idx += items.length;
+        const secYes     = getSectionChecked(section,si);
+        const secNo      = items.filter((_,i)=>ck[start+i]==="no").length;
+        const secPct     = getSectionPct(section,si);
+        const minReq     = getMin(section);
+        const secDone    = secYes >= minReq;
+        return(
+          <div key={section} style={{...card(),borderLeft:`3px solid ${secDone?GR:BOR}`}}>
+            {/* Section header */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"10px",gap:"10px",flexWrap:"wrap"}}>
+              <div>
+                <div style={h2sty}>{section}</div>
+                <div style={{color:MUT,fontSize:"11px",marginTop:"-8px"}}>Min required: {minReq} / {items.length}</div>
               </div>
-              {secDone&&<span style={{color:GR,fontSize:"16px"}}>✓</span>}
-            </div>
-          </div>
-          <div style={{background:MUT2,borderRadius:"3px",height:"3px",marginBottom:"10px"}}>
-            <div style={{background:secDone?GR:WHT,width:`${(secChecked/items.length)*100}%`,height:"3px",borderRadius:"3px",transition:"width 0.2s"}}/>
-          </div>
-          {items.map((item,i)=>{const gi=start+i,checked=!!ck[gi];return(
-            <div key={item} onClick={()=>setCk(c=>({...c,[gi]:!c[gi]}))}
-              style={{display:"flex",alignItems:"center",gap:"12px",padding:"13px",borderRadius:"10px",cursor:"pointer",marginBottom:"6px",background:checked?"#001a0d":CARD,border:`1px solid ${checked?GR:BOR}`,minHeight:"50px"}}>
-              <div style={{width:"22px",height:"22px",borderRadius:"5px",flexShrink:0,border:`2px solid ${checked?GR:MUT2}`,background:checked?GR:"transparent",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                {checked&&<span style={{color:BG,fontSize:"13px",fontWeight:"900"}}>✓</span>}
+              <div style={{textAlign:"right"}}>
+                <div style={{color:secDone?GR:WHT,fontSize:"24px",fontWeight:"700",fontFamily:"monospace"}}>{secPct}%</div>
+                <div style={{color:MUT,fontSize:"11px"}}>{secYes} yes · {secNo} no</div>
               </div>
-              <span style={{color:checked?WHT:MUT,fontSize:"14px",lineHeight:"1.4"}}>{item}</span>
             </div>
-          );})}
-        </div>);
+
+            {/* Section progress bar */}
+            <div style={{background:MUT2,borderRadius:"3px",height:"5px",marginBottom:"14px",overflow:"hidden"}}>
+              <div style={{display:"flex",height:"5px"}}>
+                <div style={{background:secDone?GR:WHT,width:`${(secYes/items.length)*100}%`,transition:"width 0.2s"}}/>
+                <div style={{background:RD,width:`${(secNo/items.length)*100}%`,transition:"width 0.2s"}}/>
+              </div>
+            </div>
+
+            {/* Items with YES / NO buttons */}
+            {items.map((item,i)=>{
+              const gi    = start+i;
+              const state = ck[gi]; // "yes" | "no" | undefined
+              return(
+                <div key={item} style={{display:"flex",alignItems:"center",gap:"10px",padding:"12px",borderRadius:"10px",marginBottom:"6px",background:state==="yes"?"#001a0d":state==="no"?"#1a0000":CARD,border:`1px solid ${state==="yes"?GR:state==="no"?RD:BOR}`,minHeight:"52px"}}>
+                  <span style={{color:state==="yes"?WHT:state==="no"?MUT2:MUT,fontSize:"14px",lineHeight:"1.4",flex:1}}>{item}</span>
+                  <div style={{display:"flex",gap:"6px",flexShrink:0}}>
+                    <button onClick={()=>setCk(c=>({...c,[gi]:c[gi]==="yes"?undefined:"yes"}))}
+                      style={{background:state==="yes"?GR:CARD,color:state==="yes"?BG:MUT,border:`1px solid ${state==="yes"?GR:BOR}`,padding:"7px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:state==="yes"?"700":"400",minHeight:"36px",minWidth:"48px"}}>
+                      YES
+                    </button>
+                    <button onClick={()=>setCk(c=>({...c,[gi]:c[gi]==="no"?undefined:"no"}))}
+                      style={{background:state==="no"?RD:CARD,color:state==="no"?WHT:MUT,border:`1px solid ${state==="no"?RD:BOR}`,padding:"7px 14px",borderRadius:"8px",cursor:"pointer",fontSize:"12px",fontWeight:state==="no"?"700":"400",minHeight:"36px",minWidth:"48px"}}>
+                      NO
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
       })}
-      <button style={btnGh({marginBottom:"20px",width:"100%"})} onClick={()=>setCk({})}>Reset Checklist</button>
+
+      <div style={{display:"flex",gap:"10px",marginBottom:"20px"}}>
+        <button style={btnGh({flex:1})} onClick={()=>setCk({})}>Reset All</button>
+        <button style={{...btnGh({flex:1}),color:GR,borderColor:GR}} onClick={()=>{
+          const all={};
+          ALL_CHECKS.forEach((_,i)=>{all[i]="yes";});
+          setCk(all);
+        }}>Mark All YES</button>
+      </div>
     </div>);
   };
 
@@ -1098,8 +1166,28 @@ export default function App() {
   // ── SETTINGS ──────────────────────────────────────────────
   const renderSettings = () => {
     const nf=(label,key,step=1)=>(<div><label style={lbl}>{label}</label><input type="number" step={step} style={inp()} value={draft[key]} onChange={e=>setDraft(d=>({...d,[key]:parseFloat(e.target.value)||0}))}/></div>);
+    const scales=[{label:"Small",val:0.85},{label:"Normal",val:1},{label:"Large",val:1.2},{label:"X-Large",val:1.4},{label:"XX-Large",val:1.6}];
     return(<div>
       {savedMsg&&<div style={{background:"#001a0d",border:`1px solid ${GR}`,borderRadius:"10px",padding:"12px 16px",marginBottom:"14px",color:GR,fontSize:"13px",fontWeight:"700"}}>{savedMsg}</div>}
+
+      {/* Text Size */}
+      <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
+        <div style={h2sty}>🔠 Text Size</div>
+        <div style={{color:MUT,fontSize:"12px",marginBottom:"14px"}}>Scales all text and UI elements across the entire app. Takes effect immediately — no need to save.</div>
+        <div style={{display:"flex",gap:"8px",flexWrap:"wrap"}}>
+          {scales.map(s=>(
+            <button key={s.val} onClick={()=>{ const u={...settings,textScale:s.val}; setSettings(u); lsSet(uk("settings"),u); sbSaveSettings(u,activeUser); }}
+              style={{flex:1,minWidth:"80px",background:settings.textScale===s.val?WHT:CARD,color:settings.textScale===s.val?BG:MUT,border:`1px solid ${settings.textScale===s.val?WHT:BOR}`,padding:"12px 8px",borderRadius:"10px",cursor:"pointer",fontSize:"13px",fontWeight:settings.textScale===s.val?"700":"400",minHeight:"48px",textAlign:"center"}}>
+              <div style={{fontFamily:"monospace",fontSize:"15px",marginBottom:"2px"}}>{s.label==="Small"?"Aa":s.label==="Normal"?"Aa":s.label==="Large"?"Aa":s.label==="X-Large"?"Aa":"Aa"}</div>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div style={{marginTop:"12px",padding:"12px",background:CARD,borderRadius:"8px",color:MUT,fontSize:"12px"}}>
+          Current scale: <span style={{color:WHT,fontWeight:"700"}}>{settings.textScale||1}x</span> — changes apply instantly without saving
+        </div>
+      </div>
+
       {/* Profile */}
       <div style={{...card(),borderLeft:`2px solid ${BOR}`}}>
         <div style={h2sty}>👤 Profile</div>
@@ -1295,7 +1383,7 @@ export default function App() {
 
   // ── ROOT ──────────────────────────────────────────────────
   return (
-    <div style={{background:BG,minHeight:"100vh",color:WHT,fontFamily:"-apple-system,sans-serif"}}>
+    <div style={{background:BG,minHeight:"100vh",color:WHT,fontFamily:"-apple-system,sans-serif",zoom:settings.textScale||1}}>
 
       {/* DESKTOP TOP NAV */}
       {!M && (
