@@ -42,6 +42,125 @@ const lsGet = (k) => { try { const v=localStorage.getItem(k); return v?JSON.pars
 const lsSet = (k,v) => { try { localStorage.setItem(k,JSON.stringify(v)); } catch(e){} };
 const lsDel = (k) => { try { localStorage.removeItem(k); } catch(e){} };
 
+
+// ── ZERODHA CHARGE CALCULATOR ────────────────────────────────
+// Source: zerodha.com/charges (live fetch May 2026)
+const SEGMENTS = [
+  "F&O — Futures",
+  "F&O — Options",
+  "Commodity — Futures",
+  "Commodity — Options",
+  "Equity — Intraday",
+  "Equity — Delivery",
+];
+
+const detectSegment = (instrument, setup) => {
+  const i = (instrument||"").toLowerCase();
+  const s = (setup||"").toLowerCase();
+  const comInstr = ["gold","silver","crude","natural gas","copper","zinc","aluminium","lead","nickel"];
+  const isCom = comInstr.some(c => i.includes(c));
+  const isOpt = s.includes("straddle") || s.includes("strangle") || i.includes("option");
+  if (isCom) return isOpt ? "Commodity — Options" : "Commodity — Futures";
+  return isOpt ? "F&O — Options" : "F&O — Futures";
+};
+
+const calcCharges = (buyVal, sellVal, nBuyOrders, nSellOrders, segment) => {
+  if (!buyVal || !sellVal) return null;
+  const totalVal = buyVal + sellVal;
+  const isFutures  = segment.includes("Futures") || segment.includes("Intraday") || segment.includes("Delivery");
+  const isCom      = segment.includes("Commodity");
+  const isDelivery = segment.includes("Delivery");
+  const isOptions  = segment.includes("Options");
+
+  // 1. Brokerage
+  let brk = 0;
+  if (isDelivery) {
+    brk = 0; // free
+  } else if (isOptions) {
+    brk = (nBuyOrders + nSellOrders) * 20;
+  } else {
+    const avgBuy  = nBuyOrders  > 0 ? buyVal  / nBuyOrders  : 0;
+    const avgSell = nSellOrders > 0 ? sellVal / nSellOrders : 0;
+    brk = Math.min(avgBuy  * 0.0003, 20) * nBuyOrders
+        + Math.min(avgSell * 0.0003, 20) * nSellOrders;
+  }
+
+  // 2. STT / CTT
+  let stt = 0;
+  if (isDelivery)                  stt = totalVal * 0.001;          // 0.1% both sides
+  else if (segment === "F&O — Futures")         stt = sellVal * 0.0005;
+  else if (segment === "F&O — Options")         stt = sellVal * 0.0015;
+  else if (segment === "Commodity — Futures")   stt = sellVal * 0.0001;
+  else if (segment === "Commodity — Options")   stt = sellVal * 0.0005;
+  else stt = sellVal * 0.00025; // equity intraday
+
+  // 3. Transaction charges
+  let txn = 0;
+  if (segment === "F&O — Futures")              txn = totalVal * 0.0000183;
+  else if (segment === "F&O — Options")         txn = totalVal * 0.0003553;
+  else if (segment === "Commodity — Futures")   txn = totalVal * 0.0000210;
+  else if (segment === "Commodity — Options")   txn = totalVal * 0.000418;
+  else if (isDelivery)                          txn = totalVal * 0.0000307;
+  else                                          txn = totalVal * 0.0000307; // intraday NSE
+
+  // 4. SEBI charges (₹10/crore)
+  const sebi = totalVal * (10 / 1e7);
+
+  // 5. GST — 18% on (brokerage + SEBI + txn)
+  const gst = (brk + sebi + txn) * 0.18;
+
+  // 6. Stamp duty (buy side only)
+  let stamp = 0;
+  if (isDelivery)                    stamp = buyVal * 0.00015;
+  else if (isOptions)                stamp = buyVal * 0.00003;
+  else if (segment.includes("Intraday")) stamp = buyVal * 0.00003;
+  else                               stamp = buyVal * 0.00002;
+
+  const total = brk + stt + txn + sebi + gst + stamp;
+  return {
+    brokerage:   +brk.toFixed(2),
+    stt:         +stt.toFixed(2),
+    txnCharges:  +txn.toFixed(2),
+    sebi:        +sebi.toFixed(2),
+    gst:         +gst.toFixed(2),
+    stamp:       +stamp.toFixed(2),
+    totalCharges:+total.toFixed(2),
+  };
+};
+
+const applyChargesToTrade = (trade) => {
+  const entry = parseFloat(trade.entry);
+  const exit  = parseFloat(trade.exitPrice);
+  const size  = parseFloat(trade.size);
+  if (!entry || !exit || !size) return trade;
+
+  const buyVal  = trade.direction === "Long" ? entry * size : exit  * size;
+  const sellVal = trade.direction === "Long" ? exit  * size : entry * size;
+  const seg     = trade.segment || detectSegment(trade.instrument, trade.setup);
+  const charges = calcCharges(buyVal, sellVal, 1, 1, seg);
+  if (!charges) return trade;
+
+  const grossPnl = trade.direction === "Long"
+    ? (exit - entry) * size
+    : (entry - exit) * size;
+  const netPnl = +(grossPnl - charges.totalCharges).toFixed(2);
+
+  return {
+    ...trade,
+    grossPnl:     String(+grossPnl.toFixed(2)),
+    pnl:          String(netPnl),
+    brokerage:    String(charges.brokerage),
+    stt:          String(charges.stt),
+    txnCharges:   String(charges.txnCharges),
+    sebi:         String(charges.sebi),
+    gst:          String(charges.gst),
+    stamp:        String(charges.stamp),
+    totalCharges: String(charges.totalCharges),
+    segment:      seg,
+  };
+};
+
+
 // ── SUPABASE SYNC ────────────────────────────────────────────
 const sbLoadList = async (table, userName) => {
   try {
@@ -94,15 +213,15 @@ const sbDeleteUser = async (name) => {
   } catch(e) {}
 };
 
-const emptyTrade = (instr,type,setup,emo) => ({ date:todayStr(), time:nowTime(), instrument:instr||"", tradeType:type||"Intraday", direction:"Long", setup:setup||"", entry:"", sl:"", exitPrice:"", size:"", riskAmount:"", pnl:"", rrAchieved:"", grade:"A", followedRules:"Yes", emotion:emo||"Calm", mistakes:"", improvements:"", notes:"" });
+const emptyTrade = (instr,type,setup,emo) => ({ date:todayStr(), time:nowTime(), instrument:instr||"", tradeType:type||"Intraday", direction:"Long", setup:setup||"", segment:detectSegment(instr||'',setup||''), entry:"", sl:"", exitPrice:"", size:"", riskAmount:"", grossPnl:"", pnl:"", brokerage:"", stt:"", txnCharges:"", sebi:"", gst:"", stamp:"", totalCharges:"", rrAchieved:"", grade:"A", followedRules:"Yes", emotion:emo||"Calm", mistakes:"", improvements:"", notes:"" });
 const emptyPlan   = (instr) => ({ date:todayStr(), instrument:instr||"", bias:"Bullish", grade:"A", keyLevels:"", setup:"", entryZone:"", sl:"", target1:"", target2:"", invalidation:"", confluences:"", notes:"" });
 const emptyReview = (p) => ({ date:todayStr(), period:p, mentalState:"Good", whatWentWell:"", mistakes:"", missedSetups:"", rulesFollowed:"", emotionalTrading:"", regrets:"", improvements:"", selfCoaching:"" });
 
 // ── EXPORT HELPERS ───────────────────────────────────────────
 const exportCSV = (trades) => {
   if(!trades.length){alert("No trades to export.");return;}
-  const h=["Date","Time","Instrument","Trade Type","Direction","Setup","Entry","SL","Exit","Size","Risk(₹)","P&L(₹)","R:R","Grade","Rules","Emotion","Mistakes","Improvements","Notes"];
-  const rows=trades.map(t=>[t.date,t.time,t.instrument,t.tradeType,t.direction,t.setup,t.entry,t.sl,t.exitPrice,t.size,t.riskAmount,t.pnl,t.rrAchieved,t.grade,t.followedRules,t.emotion,`"${(t.mistakes||"").replace(/"/g,'""')}"`,`"${(t.improvements||"").replace(/"/g,'""')}"`,`"${(t.notes||"").replace(/"/g,'""')}"`]);
+  const h=["Date","Time","Instrument","Trade Type","Direction","Setup","Segment","Entry","SL","Exit","Size","Risk(₹)","Gross P&L(₹)","Brokerage","STT","Txn","GST","Stamp","SEBI","Total Charges","Net P&L(₹)","R:R","Grade","Rules","Emotion","Mistakes","Improvements","Notes"];
+  const rows=trades.map(t=>[t.date,t.time,t.instrument,t.tradeType,t.direction,t.setup,t.segment||"",t.entry,t.sl,t.exitPrice,t.size,t.riskAmount,t.grossPnl||"",t.brokerage||"",t.stt||"",t.txnCharges||"",t.gst||"",t.stamp||"",t.sebi||"",t.totalCharges||"",t.pnl,t.rrAchieved,t.grade,t.followedRules,t.emotion,`"${(t.mistakes||"").replace(/"/g,'""')}"`,`"${(t.improvements||"").replace(/"/g,'""')}"`,`"${(t.notes||"").replace(/"/g,'""')}"`]);
   const csv=[h.join(","),...rows.map(r=>r.join(","))].join("\n");
   const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download=`top1pct_trades_${todayStr()}.csv`; a.click();
 };
@@ -149,6 +268,7 @@ export default function App() {
   const [userScreen,  setUserScreen]  = useState(true);
   const [importMsg,   setImportMsg]   = useState("");
   const [tSearch,  setTSearch]  = useState("");
+  const [expandedTradeId, setExpandedTradeId] = useState(null);
   const DEF_TAB_ORDER = ["dashboard","journal","trades","checklist","risk","plan","analytics","review","customize","settings"];
   const [tabOrder,    setTabOrder]    = useState(() => lsGet("top1pct_tabOrder") || DEF_TAB_ORDER);
   const [sectionMins, setSectionMins] = useState({});
@@ -262,7 +382,7 @@ export default function App() {
   };
 
   // ── TRADE ACTIONS ─────────────────────────────────────────
-  const logTrade    = () => { if(!tf||!tf.entry||!tf.sl){alert("Entry and SL required");return;} pTrades([{...tf,id:Date.now()},...trades]); setTf(emptyTrade(instruments[0],tradeTypes[0],setups[0],emotions[0])); };
+  const logTrade    = () => { if(!tf||!tf.entry||!tf.sl){alert("Entry and SL required");return;} const finalTrade=applyChargesToTrade({...tf,id:Date.now()}); pTrades([finalTrade,...trades]); setTf(emptyTrade(instruments[0],tradeTypes[0],setups[0],emotions[0])); };
   const deleteTrade = (id) => pTrades(trades.filter(t=>t.id!==id));
   const logReview   = () => { pReviews([{...rf,id:Date.now()},...reviews]); setRf(emptyReview(rtab)); };
   const deleteReview= (id) => pReviews(reviews.filter(r=>r.id!==id));
@@ -271,11 +391,27 @@ export default function App() {
   // ── IMPORT ────────────────────────────────────────────────
   const [importStatus, setImportStatus] = useState(null); // {done, added, skipped, error}
 
+  const tradeFingerprint = (t) => {
+    const entry = Math.round(parseFloat(t.entry || 0));
+    const instr = (t.instrument || "").toLowerCase().replace(/\s+/g,"");
+    return `${t.date}_${instr}_${(t.direction||"").toLowerCase()}_${entry}`;
+  };
+
   const doMerge = (imported) => {
     if (!Array.isArray(imported)) throw new Error("Invalid format");
-    const existingIds = new Set(trades.map(t => String(t.id)));
-    const newTrades   = imported.filter(t => !existingIds.has(String(t.id)));
-    const merged      = [...newTrades, ...trades].sort((a,b) => b.date.localeCompare(a.date));
+    const existingIds          = new Set(trades.map(t => String(t.id)));
+    const existingFingerprints = new Set(trades.map(tradeFingerprint));
+
+    const withCharges = imported.map(t => {
+      if (t.totalCharges && parseFloat(t.totalCharges) > 0) return t;
+      return applyChargesToTrade({...t, segment: t.segment || detectSegment(t.instrument, t.setup)});
+    });
+
+    const newTrades = withCharges.filter(t =>
+      !existingIds.has(String(t.id)) &&
+      !existingFingerprints.has(tradeFingerprint(t))
+    );
+    const merged = [...newTrades, ...trades].sort((a,b) => b.date.localeCompare(a.date));
     pTrades(merged);
     setImportStatus({ done:true, added:newTrades.length, skipped:imported.length-newTrades.length });
     setTimeout(() => setImportStatus(null), 5000);
@@ -438,8 +574,29 @@ export default function App() {
   const todayPnl=trades.filter(t=>t.date===todayStr()&&t.pnl!=="").reduce((s,t)=>s+parseFloat(t.pnl),0);
   const weekPnl=(()=>{const ws=new Date();ws.setDate(ws.getDate()-ws.getDay());return trades.filter(t=>t.pnl!==""&&new Date(t.date)>=ws).reduce((s,t)=>s+parseFloat(t.pnl),0);})();
   const rcRiskAmt=rc.riskType==="major"?rc.capital*(settings.majorRisk/100):rc.riskType==="drawdown"?rc.capital*(settings.drawdownRisk/100):rc.capital*(settings.baseRisk/100);
-  const rcResult=(()=>{const e=parseFloat(rc.entry),s=parseFloat(rc.sl);if(!rc.entry||!rc.sl||isNaN(e)||isNaN(s))return null;const sl=Math.abs(e-s);if(!sl)return null;const dir=e>s?1:-1;return{risk:Math.round(rcRiskAmt),slDist:sl.toFixed(4),size:(rcRiskAmt/sl).toFixed(2),tp:(e+dir*sl*parseFloat(rc.rr)).toFixed(4)};})();
-  const pnlCurve  =(list)=>{let c=0;return[...list].reverse().filter(t=>t.pnl!=="").map((t,i)=>{c+=parseFloat(t.pnl);return{n:i+1,v:Math.round(c)};});};
+  const rcResult=(()=>{
+    const e=parseFloat(rc.entry), s=parseFloat(rc.sl);
+    if(!rc.entry||!rc.sl||isNaN(e)||isNaN(s)) return null;
+    const slDist=Math.abs(e-s); if(!slDist) return null;
+    const dir=e>s?1:-1;
+    const qty=Math.floor(rcRiskAmt/slDist);
+    const posValue=qty*e;
+    const tp=e+dir*slDist*parseFloat(rc.rr);
+    const reward=qty*slDist*parseFloat(rc.rr);
+    const seg = rc.segment || detectSegment(rc.instrument||"","");
+    const estCharges = calcCharges(qty*e, qty*(rc.direction==="Short"?e:tp), 1, 1, seg);
+    return {
+      risk:     Math.round(rcRiskAmt),
+      slDist:   slDist.toFixed(4),
+      qty:      qty,
+      posValue: Math.round(posValue),
+      tp:       tp.toFixed(4),
+      reward:   Math.round(reward),
+      netReward:Math.round(reward - (estCharges?.totalCharges||0)),
+      charges:  Math.round(estCharges?.totalCharges||0),
+    };
+  })();
+  const pnlCurve  =(list)=>{let c=0;return[...list].filter(t=>t.pnl!=="").sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{c+=parseFloat(t.pnl);return{date:t.date.slice(5),v:Math.round(c)};});};
   const byInstr   =(list)=>{const all=[...new Set([...instruments,...list.map(t=>t.instrument)])];return all.map(name=>{const ts=list.filter(t=>t.instrument===name&&t.pnl!=="");return{name,v:Math.round(ts.reduce((s,t)=>s+parseFloat(t.pnl),0)),n:ts.length};}).filter(d=>d.n>0);};
   const byGrade   =(list)=>GRADES.map(g=>{const ts=list.filter(t=>t.grade===g&&t.pnl!=="");return{g,v:Math.round(ts.reduce((s,t)=>s+parseFloat(t.pnl),0)),n:ts.length};});
   const byEmotion =(list)=>{const m={};list.filter(t=>t.pnl!=="").forEach(t=>{if(!m[t.emotion])m[t.emotion]=0;m[t.emotion]+=parseFloat(t.pnl);});return Object.entries(m).map(([e,v])=>({e,v:Math.round(v)}));};
@@ -567,8 +724,23 @@ export default function App() {
           ))}
         </div>
 
+        {/* Capital Curve */}
+        <Sec n="01" right={`${trades.filter(t=>t.pnl).length} trades`}>capital curve</Sec>
+        {(()=>{const curve=pnlCurve(trades);return curve.length>1?(
+          <div style={{marginBottom:"28px"}}>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={curve}>
+                <XAxis dataKey="date" stroke={MUT2} tick={{fill:MUT,fontSize:9}} interval="preserveStartEnd"/>
+                <YAxis stroke={MUT2} tick={{fill:MUT,fontSize:9}} tickFormatter={v=>fmt(v)} width={80}/>
+                <Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"Cumulative P&L"]}/>
+                <Line type="monotone" dataKey="v" stroke={allSt.pnl>=0?GR:RD} strokeWidth={1.5} dot={false}/>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ):<div style={{color:MUT2,fontSize:"12px",padding:"16px 0",marginBottom:"16px"}}>no closed trades yet — start logging to see your curve.</div>;})()}
+
         {/* Loss limits */}
-        <Sec n="01" right="limits">loss limits</Sec>
+        <Sec n="02" right="limits">loss limits</Sec>
         {[
           {label:"Daily",  used:Math.max(0,-todayPnl), limit:settings.dailyLimit},
           {label:"Weekly", used:Math.max(0,-weekPnl),  limit:settings.weeklyLimit},
@@ -586,13 +758,13 @@ export default function App() {
         })}
 
         {/* Recent trades */}
-        <Sec n="02" right={`${trades.length} total`}>recent executions</Sec>
+        <Sec n="03" right={`${trades.length} total`}>recent executions</Sec>
         {!trades.length
           ? <div style={{color:MUT2,fontSize:"13px",padding:"20px 0"}}>no trades logged yet.</div>
           : <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
               <thead>
                 <tr style={{color:MUT,borderBottom:`1px solid ${BOR}`}}>
-                  {["date","instrument","direction","setup","entry","exit","p&l","r:r","grade"].map(h=>(
+                  {["date","instrument","direction","setup","entry","exit","gross","charges","net p&l","r:r","grade"].map(h=>(
                     <th key={h} style={{padding:"6px 0",textAlign:"left",fontWeight:"400",fontSize:"10px",textTransform:"uppercase",letterSpacing:".14em",paddingRight:"16px"}}>{h}</th>
                   ))}
                 </tr>
@@ -621,7 +793,7 @@ export default function App() {
         </div>
 
         {/* Quick stats */}
-        <Sec n="03">session breakdown</Sec>
+        <Sec n="04">session breakdown</Sec>
         <div style={{display:"grid",gridTemplateColumns:M?"1fr 1fr":"1fr 1fr 1fr 1fr",gap:"0",borderTop:`1px solid ${BOR}`,borderBottom:`1px solid ${BOR}`}}>
           {[
             {l:"Intraday Win %", v:idSt.winRate+"%"},
@@ -658,6 +830,22 @@ export default function App() {
             ))}
           </div>
         </div>
+        {/* Segment selector */}
+        <div style={{marginBottom:"14px"}}>
+          <div style={lbl}>Segment / Product Type</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:"6px"}}>
+            {SEGMENTS.map(s=>(
+              <button key={s} onClick={()=>setTf(f=>({...f,segment:s}))}
+                style={{background:tf.segment===s?AMB:CARD,color:tf.segment===s?BG:MUT,
+                        border:`1px solid ${tf.segment===s?AMB:BOR}`,padding:"8px 14px",
+                        borderRadius:"0",cursor:"pointer",fontSize:"11px",
+                        textTransform:"uppercase",letterSpacing:".1em",minHeight:"40px",
+                        fontWeight:tf.segment===s?"700":"400"}}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
         {/* Direction — big tap cards */}
         <div style={{marginBottom:"14px"}}>
           <div style={lbl}>Direction</div>
@@ -681,15 +869,52 @@ export default function App() {
           <div><label style={lbl}>Setup</label><select style={sel()} value={tf.setup} onChange={e=>setTf(f=>({...f,setup:e.target.value}))}>{[...new Set([...setups,...(tf.setup&&!setups.includes(tf.setup)?[tf.setup]:[])])].map(i=><option key={i}>{i}</option>)}</select></div>
         </div>
         <div style={{...g3,marginTop:"10px"}}>
-          <div><label style={lbl}>Entry Price</label><input type="number" style={inp()} value={tf.entry} onChange={e=>setTf(f=>({...f,entry:e.target.value}))}/></div>
+          <div><label style={lbl}>Entry Price</label><input type="number" style={inp()} value={tf.entry} onChange={e=>{const u={...tf,entry:e.target.value};setTf(applyChargesToTrade(u));}}/></div>
           <div><label style={lbl}>Stop Loss</label><input type="number" style={inp()} value={tf.sl} onChange={e=>setTf(f=>({...f,sl:e.target.value}))}/></div>
-          <div><label style={lbl}>Exit Price</label><input type="number" style={inp()} value={tf.exitPrice} onChange={e=>setTf(f=>({...f,exitPrice:e.target.value}))}/></div>
+          <div><label style={lbl}>Exit Price</label><input type="number" style={inp()} value={tf.exitPrice} onChange={e=>{const u={...tf,exitPrice:e.target.value};setTf(applyChargesToTrade(u));}}/></div>
         </div>
         <div style={{...g3,marginTop:"10px"}}>
-          <div><label style={lbl}>Position Size</label><input type="number" style={inp()} value={tf.size} onChange={e=>setTf(f=>({...f,size:e.target.value}))}/></div>
+          <div><label style={lbl}>Position Size</label><input type="number" style={inp()} value={tf.size} onChange={e=>{const u={...tf,size:e.target.value};setTf(applyChargesToTrade(u));}}/></div>
           <div><label style={lbl}>Risk (₹)</label><input type="number" style={inp()} value={tf.riskAmount} onChange={e=>setTf(f=>({...f,riskAmount:e.target.value}))}/></div>
-          <div><label style={lbl}>P&L (₹)</label><input type="number" style={inp()} value={tf.pnl} onChange={e=>setTf(f=>({...f,pnl:e.target.value}))}/></div>
+          <div><label style={lbl}>Gross P&L (₹)</label><input type="number" style={inp({color:AMB})} value={tf.grossPnl} readOnly placeholder="auto-calculated"/></div>
         </div>
+
+        {/* Auto-calculated charges panel */}
+        {tf.entry&&tf.exitPrice&&tf.size&&parseFloat(tf.totalCharges||0)>0&&(
+          <div style={{marginTop:"14px",border:`1px solid ${BOR}`,background:CARD}}>
+            <div style={{padding:"10px 14px",borderBottom:`1px solid ${BOR}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span style={{color:AMB,fontSize:"10px",textTransform:"uppercase",letterSpacing:".16em"}}>charge breakdown · {tf.segment}</span>
+              <span style={{color:MUT,fontSize:"10px"}}>Zerodha exact rates</span>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:M?"1fr 1fr":"repeat(6,1fr)"}}>
+              {[
+                {l:"Brokerage", v:tf.brokerage},
+                {l:"STT/CTT",   v:tf.stt},
+                {l:"Txn",       v:tf.txnCharges},
+                {l:"GST",       v:tf.gst},
+                {l:"Stamp",     v:tf.stamp},
+                {l:"SEBI",      v:tf.sebi},
+              ].map(({l,v},i)=>(
+                <div key={l} style={{padding:"10px 14px",borderLeft:i>0&&!M?`1px solid ${BOR}`:"none",borderTop:M&&i>=2?`1px solid ${BOR}`:"none"}}>
+                  <div style={{color:MUT,fontSize:"9px",textTransform:"uppercase",letterSpacing:".14em",marginBottom:"4px"}}>{l}</div>
+                  <div style={{color:WHT,fontSize:"13px",fontFamily:"'JetBrains Mono',monospace"}}>₹{parseFloat(v||0).toFixed(2)}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{padding:"12px 14px",borderTop:`1px solid ${BOR}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <span style={{color:MUT,fontSize:"10px",textTransform:"uppercase",letterSpacing:".14em"}}>Total Charges &nbsp;</span>
+                <span style={{color:RD,fontSize:"16px",fontFamily:"'JetBrains Mono',monospace"}}>₹{parseFloat(tf.totalCharges||0).toFixed(2)}</span>
+              </div>
+              <div>
+                <span style={{color:MUT,fontSize:"10px",textTransform:"uppercase",letterSpacing:".14em"}}>Net P&L &nbsp;</span>
+                <span style={{color:parseFloat(tf.pnl||0)>=0?GR:RD,fontSize:"20px",fontWeight:"400",fontFamily:"'JetBrains Mono',monospace"}}>
+                  ₹{parseFloat(tf.pnl||0).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
         <div style={{...g2,marginTop:"10px"}}>
           <div><label style={lbl}>R:R Achieved</label><input type="number" step="0.1" style={inp()} value={tf.rrAchieved} onChange={e=>setTf(f=>({...f,rrAchieved:e.target.value}))}/></div>
           <div><label style={lbl}>Emotional State</label><select style={sel()} value={tf.emotion} onChange={e=>setTf(f=>({...f,emotion:e.target.value}))}>{emotions.map(e=><option key={e}>{e}</option>)}</select></div>
@@ -741,6 +966,8 @@ export default function App() {
                 <td style={{padding:"8px 6px",color:MUT,fontSize:"11px",maxWidth:"100px",overflow:"hidden"}}>{t.setup}</td>
                 <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.entry}</td>
                 <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.exitPrice||"—"}</td>
+                <td style={{padding:"8px 6px",fontFamily:"monospace",color:MUT,fontSize:"11px"}}>{t.grossPnl?fmt(parseFloat(t.grossPnl)):"—"}</td>
+                <td style={{padding:"8px 6px",color:RD,fontSize:"11px"}}>{t.totalCharges?`-₹${parseFloat(t.totalCharges||0).toFixed(0)}`:"—"}</td>
                 <td style={{padding:"8px 6px",fontFamily:"monospace",fontWeight:"700",color:parseFloat(t.pnl||0)>=0?GR:RD}}>{t.pnl?fmt(parseFloat(t.pnl)):"—"}</td>
                 <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.rrAchieved||"—"}</td>
                 <td style={{padding:"8px 6px"}}><span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"0",fontSize:"11px"}}>{t.grade||"—"}</span></td>
@@ -897,14 +1124,49 @@ export default function App() {
           <span style={{color:MUT,fontSize:"13px"}}>Risk amount:</span>
           <span style={{color:RD,fontSize:"20px",fontWeight:"700",fontFamily:"monospace"}}>{fmt(Math.round(rcRiskAmt))}</span>
         </div>
+        {/* Instrument + Segment for charge estimate */}
+        <div style={{...g2,marginTop:"12px"}}>
+          <div>
+            <label style={lbl}>Instrument (for charge estimate)</label>
+            <select style={sel()} value={rc.instrument||""} onChange={e=>setRc(r=>({...r,instrument:e.target.value}))}>
+              <option value="">Select...</option>
+              {instruments.map(i=><option key={i}>{i}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={lbl}>Segment</label>
+            <select style={sel()} value={rc.segment||"F&O — Futures"} onChange={e=>setRc(r=>({...r,segment:e.target.value}))}>
+              {SEGMENTS.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
         {rcResult&&(
-          <div style={{...g2,marginTop:"12px"}}>
-            {[{label:"Risk Amount",val:fmt(rcResult.risk),color:RD},{label:"SL Distance",val:rcResult.slDist+" pts",color:MUT},{label:"Position Size",val:rcResult.size+" units",color:WHT},{label:"Target Price",val:rcResult.tp,color:GR}].map(x=>(
-              <div key={x.label} style={{background:CARD,borderRadius:"0",padding:"14px",textAlign:"center"}}>
-                <div style={{color:x.color,fontSize:"18px",fontWeight:"700",fontFamily:"monospace"}}>{x.val}</div>
-                <div style={{color:MUT,fontSize:"10px",marginTop:"5px"}}>{x.label}</div>
-              </div>
-            ))}
+          <div style={{marginTop:"16px"}}>
+            {/* Hero — Quantity */}
+            <div style={{borderTop:`1px solid ${BOR}`,borderBottom:`1px solid ${BOR}`,padding:"20px 0",textAlign:"center",marginBottom:"14px"}}>
+              <div style={{color:AMB,fontSize:"9px",textTransform:"uppercase",letterSpacing:".18em",marginBottom:"8px"}}>recommended quantity</div>
+              <div style={{color:WHT,fontSize:"64px",fontWeight:"200",fontFamily:"'JetBrains Mono',monospace",letterSpacing:"-.03em",lineHeight:1}}>{rcResult.qty}</div>
+              <div style={{color:MUT,fontSize:"12px",marginTop:"6px"}}>units · position value {fmt(rcResult.posValue)}</div>
+            </div>
+            {/* Detail grid */}
+            <div style={{display:"grid",gridTemplateColumns:M?"1fr 1fr":"repeat(4,1fr)",borderTop:`1px solid ${BOR}`,borderBottom:`1px solid ${BOR}`}}>
+              {[
+                {l:"Max Risk",   v:fmt(rcResult.risk),         c:RD},
+                {l:"SL Distance",v:rcResult.slDist+" pts",     c:MUT},
+                {l:"Target",     v:rcResult.tp,                c:GR},
+                {l:"Gross Reward",v:fmt(rcResult.reward),      c:GR},
+                {l:"Est. Charges",v:"-"+fmt(rcResult.charges), c:RD},
+                {l:"Net Reward",  v:fmt(rcResult.netReward),   c:rcResult.netReward>=0?GR:RD},
+                {l:"Net R:R",     v:(rcResult.netReward/rcResult.risk).toFixed(2)+"x", c:AMB},
+                {l:"Qty × SL",    v:rcResult.qty+" × "+rcResult.slDist, c:MUT},
+              ].map(({l,v,c},i)=>(
+                <div key={l} style={{padding:"14px 18px",borderLeft:i%4!==0?`1px solid ${BOR}`:"none",borderTop:i>=4?`1px solid ${BOR}`:"none"}}>
+                  <div style={{color:MUT,fontSize:"9px",textTransform:"uppercase",letterSpacing:".14em",marginBottom:"6px"}}>{l}</div>
+                  <div style={{color:c,fontSize:"15px",fontFamily:"'JetBrains Mono',monospace"}}>{v}</div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -1086,33 +1348,84 @@ export default function App() {
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:"12px"}}>
                   <thead>
                     <tr style={{color:MUT,borderBottom:`1px solid ${BOR}`}}>
-                      {["Date","Instrument","Type","Direction","Setup","Entry","Exit","P&L","R:R","Grade","Rules","Emotion",""].map(h=>(
+                      {["Date","Instrument","Type","Direction","Setup","Entry","Exit","Gross","Charges","Net P&L","R:R","Grade","Rules","Emotion",""].map(h=>(
                         <th key={h} style={{padding:"8px 6px",textAlign:"left",fontWeight:"400",whiteSpace:"nowrap"}}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {filtered.map(t=>(
-                      <tr key={t.id} style={{borderBottom:`1px solid ${CARD}`}}>
-                        <td style={{padding:"8px 6px",color:MUT,whiteSpace:"nowrap"}}>{t.date}</td>
-                        <td style={{padding:"8px 6px",color:WHT,whiteSpace:"nowrap"}}>{t.instrument}</td>
-                        <td style={{padding:"8px 6px",color:MUT,whiteSpace:"nowrap"}}>{t.tradeType}</td>
-                        <td style={{padding:"8px 6px",color:t.direction==="Long"?GR:RD}}>{t.direction}</td>
-                        <td style={{padding:"8px 6px",color:MUT,fontSize:"11px",maxWidth:"120px",overflow:"hidden"}}>{t.setup}</td>
-                        <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.entry||"—"}</td>
-                        <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.exitPrice||"—"}</td>
-                        <td style={{padding:"8px 6px",fontFamily:"monospace",fontWeight:"700",color:parseFloat(t.pnl||0)>=0?GR:RD}}>{t.pnl?fmt(parseFloat(t.pnl)):"—"}</td>
-                        <td style={{padding:"8px 6px",fontFamily:"monospace"}}>{t.rrAchieved||"—"}</td>
-                        <td style={{padding:"8px 6px"}}>
-                          <span style={{background:t.grade==="A+"?WHT+"22":CARD,color:t.grade==="A+"?WHT:MUT,padding:"2px 7px",borderRadius:"0",fontSize:"11px"}}>{t.grade||"—"}</span>
-                        </td>
-                        <td style={{padding:"8px 6px",color:t.followedRules==="Yes"?GR:t.followedRules==="No"?RD:MUT,fontSize:"11px"}}>{t.followedRules||"—"}</td>
-                        <td style={{padding:"8px 6px",color:MUT,fontSize:"11px"}}>{t.emotion||"—"}</td>
-                        <td style={{padding:"8px 6px"}}>
-                          <button onClick={()=>deleteTrade(t.id)} style={{background:RD,color:WHT,border:"none",padding:"4px 10px",borderRadius:"0",cursor:"pointer",fontSize:"11px",minHeight:"32px"}}>Del</button>
-                        </td>
-                      </tr>
-                    ))}
+                    {filtered.map(t=>{
+                      const isExp=expandedTradeId===t.id;
+                      const net=parseFloat(t.pnl||0);
+                      return(<>
+                        <tr key={t.id} onClick={()=>setExpandedTradeId(isExp?null:t.id)}
+                          style={{borderBottom:isExp?"none":`1px solid ${BOR}`,cursor:"pointer",background:isExp?SURF:"transparent"}}>
+                          <td style={{padding:"10px 6px",color:MUT,whiteSpace:"nowrap",fontSize:"12px"}}>{t.date}</td>
+                          <td style={{padding:"10px 6px",color:WHT,whiteSpace:"nowrap"}}>{t.instrument}</td>
+                          <td style={{padding:"10px 6px",color:MUT,fontSize:"11px"}}>{t.tradeType}</td>
+                          <td style={{padding:"10px 6px",color:t.direction==="Long"?GR:RD}}>{t.direction}</td>
+                          <td style={{padding:"10px 6px",color:MUT,fontSize:"11px",maxWidth:"110px",overflow:"hidden"}}>{t.setup}</td>
+                          <td style={{padding:"10px 6px",fontFamily:"monospace",fontSize:"12px"}}>{t.entry||"—"}</td>
+                          <td style={{padding:"10px 6px",fontFamily:"monospace",fontSize:"12px"}}>{t.exitPrice||"—"}</td>
+                          <td style={{padding:"10px 6px",color:MUT,fontSize:"11px"}}>{t.grossPnl?fmt(parseFloat(t.grossPnl)):"—"}</td>
+                          <td style={{padding:"10px 6px",color:RD,fontSize:"11px"}}>{t.totalCharges?`-₹${parseFloat(t.totalCharges||0).toFixed(0)}`:"—"}</td>
+                          <td style={{padding:"10px 6px",fontFamily:"monospace",fontWeight:"500",color:net>=0?GR:RD}}>{t.pnl?fmt(net):"—"}</td>
+                          <td style={{padding:"10px 6px",color:AMB,fontSize:"12px"}}>{t.rrAchieved||"—"}</td>
+                          <td style={{padding:"10px 6px",color:t.grade==="A+"?AMB:MUT,fontSize:"11px"}}>{t.grade||"—"}</td>
+                          <td style={{padding:"10px 6px",color:t.followedRules==="Yes"?GR:t.followedRules==="No"?RD:MUT,fontSize:"11px"}}>{t.followedRules||"—"}</td>
+                          <td style={{padding:"10px 6px",color:MUT,fontSize:"11px"}}>{t.emotion||"—"}</td>
+                          <td style={{padding:"10px 6px"}} onClick={e=>e.stopPropagation()}>
+                            <button onClick={()=>deleteTrade(t.id)} style={{background:"transparent",color:RD,border:`1px solid ${RD}`,padding:"3px 8px",cursor:"pointer",fontSize:"10px"}}>Del</button>
+                          </td>
+                        </tr>
+                        {isExp&&(
+                          <tr key={t.id+"-exp"}><td colSpan={15} style={{padding:0,background:SURF}}>
+                            <div style={{padding:"20px 24px",borderBottom:`1px solid ${BOR}`}}>
+                              <div style={{color:AMB,fontSize:"9px",textTransform:"uppercase",letterSpacing:".18em",marginBottom:"14px"}}>trade detail · {t.instrument} · {t.date}</div>
+                              <div style={{display:"grid",gridTemplateColumns:M?"1fr 1fr":"repeat(5,1fr)",borderTop:`1px solid ${BOR}`,marginBottom:"16px"}}>
+                                {[
+                                  {l:"Date & Time",  v:`${t.date} ${t.time||""}`},
+                                  {l:"Segment",      v:t.segment||"—"},
+                                  {l:"Direction",    v:t.direction, c:t.direction==="Long"?GR:RD},
+                                  {l:"Entry",        v:t.entry||"—"},
+                                  {l:"Exit",         v:t.exitPrice||"—"},
+                                  {l:"Size",         v:t.size||"—"},
+                                  {l:"SL",           v:t.sl||"—"},
+                                  {l:"R:R",          v:t.rrAchieved||"—"},
+                                  {l:"Gross P&L",    v:t.grossPnl?fmt(parseFloat(t.grossPnl)):"—", c:parseFloat(t.grossPnl||0)>=0?GR:RD},
+                                  {l:"Net P&L",      v:t.pnl?fmt(net):"—", c:net>=0?GR:RD},
+                                  {l:"Brokerage",    v:t.brokerage?`₹${parseFloat(t.brokerage).toFixed(2)}`:"—", c:RD},
+                                  {l:"STT/CTT",      v:t.stt?`₹${parseFloat(t.stt).toFixed(2)}`:"—", c:RD},
+                                  {l:"GST",          v:t.gst?`₹${parseFloat(t.gst).toFixed(2)}`:"—", c:RD},
+                                  {l:"Stamp",        v:t.stamp?`₹${parseFloat(t.stamp).toFixed(2)}`:"—", c:RD},
+                                  {l:"Total Charges",v:t.totalCharges?`₹${parseFloat(t.totalCharges).toFixed(2)}`:"—", c:RD},
+                                  {l:"Grade",        v:t.grade||"—", c:t.grade==="A+"?AMB:WHT},
+                                  {l:"Rules",        v:t.followedRules||"—", c:t.followedRules==="Yes"?GR:t.followedRules==="No"?RD:MUT},
+                                  {l:"Emotion",      v:t.emotion||"—"},
+                                  {l:"Setup",        v:t.setup||"—"},
+                                  {l:"Trade Type",   v:t.tradeType||"—"},
+                                ].map(({l,v,c},i)=>(
+                                  <div key={l} style={{padding:"12px 16px",borderLeft:i%5!==0?`1px solid ${BOR}`:"none",borderBottom:`1px solid ${BOR}`}}>
+                                    <div style={{color:MUT,fontSize:"9px",textTransform:"uppercase",letterSpacing:".14em",marginBottom:"4px"}}>{l}</div>
+                                    <div style={{color:c||WHT,fontSize:"12px",fontFamily:"'JetBrains Mono',monospace"}}>{v}</div>
+                                  </div>
+                                ))}
+                              </div>
+                              {(t.mistakes||t.improvements||t.notes)&&(
+                                <div style={{display:"grid",gridTemplateColumns:M?"1fr":"1fr 1fr 1fr",gap:"20px"}}>
+                                  {[{l:"Mistakes",v:t.mistakes},{l:"Improvements",v:t.improvements},{l:"Notes",v:t.notes}].filter(x=>x.v).map(x=>(
+                                    <div key={x.l}>
+                                      <div style={{color:AMB,fontSize:"9px",textTransform:"uppercase",letterSpacing:".14em",marginBottom:"6px"}}>{x.l}</div>
+                                      <div style={{color:MUT,fontSize:"12px",lineHeight:1.7}}>{x.v}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td></tr>
+                        )}
+                      </>);
+                    })}
                   </tbody>
                 </table>
               </div>}
@@ -1144,7 +1457,7 @@ export default function App() {
       </div>
       <div style={{...card(),marginTop:"14px"}}>
         <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:".14em",color:AMB,marginBottom:"14px"}}>p&l curve</div>
-        {curve.length>0?<ResponsiveContainer width="100%" height={200}><LineChart data={curve}><XAxis dataKey="n" stroke={MUT2} tick={{fill:MUT,fontSize:10}}/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:10}} tickFormatter={v=>fmt(v)}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"Cumulative P&L"]}/><Line type="monotone" dataKey="v" stroke={WHT} strokeWidth={2} dot={false}/></LineChart></ResponsiveContainer>:noData}
+        {curve.length>0?<ResponsiveContainer width="100%" height={200}><LineChart data={curve}><XAxis dataKey="date" stroke={MUT2} tick={{fill:MUT,fontSize:9}} interval="preserveStartEnd"/><YAxis stroke={MUT2} tick={{fill:MUT,fontSize:10}} tickFormatter={v=>fmt(v)}/><Tooltip contentStyle={ttSty} labelStyle={ttLabel} itemStyle={ttItem} formatter={v=>[fmt(v),"Cumulative P&L"]}/><Line type="monotone" dataKey="v" stroke={WHT} strokeWidth={2} dot={false}/></LineChart></ResponsiveContainer>:noData}
       </div>
       <div style={g2}>
         <div style={card()}>
