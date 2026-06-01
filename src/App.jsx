@@ -666,7 +666,7 @@ export default function App() {
       {!closed.length ? (
         <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`}}>no trades yet. go to journal to log one.</div>
       ) : (
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:T.size.small}}>
+        <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",margin:isMob?`0 -${T.s[3]}px`:undefined,padding:isMob?`0 ${T.s[3]}px`:undefined}}><table style={{minWidth:isMob?540:"auto",width:"100%",borderCollapse:"collapse",fontSize:T.size.small}}>
           <thead>
             <tr style={{color:T.mut,borderBottom:T.rule1}}>
               {["date","instrument","direction","entry","exit","net p&l","r:r"].map(h => (
@@ -687,7 +687,7 @@ export default function App() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </div>
   );
@@ -1056,7 +1056,7 @@ export default function App() {
       {/* best/worst setups */}
       <Sec n="03" title="best & worst setups"/>
       {bySetup(aData).length ? (
-        <table style={{width:"100%",borderCollapse:"collapse",fontSize:T.size.small}}>
+        <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",margin:isMob?`0 -${T.s[3]}px`:undefined,padding:isMob?`0 ${T.s[3]}px`:undefined}}><table style={{minWidth:isMob?540:"auto",width:"100%",borderCollapse:"collapse",fontSize:T.size.small}}>
           <thead><tr style={{color:T.mut,borderBottom:T.rule1}}>
             {["setup","trades","p&l"].map(h => <th key={h} style={{padding:`${T.s[2]}px ${T.s[3]}px`,textAlign:"left",fontWeight:T.weight.regular,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".14em"}}>{h}</th>)}
           </tr></thead>
@@ -1067,7 +1067,7 @@ export default function App() {
               <td style={{padding:`${T.s[3]}px ${T.s[3]}px`,color:d.v>=0?T.gr:T.rd,fontFamily:"'JetBrains Mono', monospace"}}>{fmt(d.v)}</td>
             </tr>
           ))}</tbody>
-        </table>
+        </table></div>
       ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`}}>no data</div>}
     </div>
   );
@@ -1506,7 +1506,7 @@ export default function App() {
   };
 
   return (
-    <div style={{background:T.bg, minHeight:"100vh", color:T.text, fontFamily:"'JetBrains Mono', ui-monospace, monospace", fontWeight:T.weight.light, zoom:settings.textScale||1}}>
+    <div style={{background:T.bg,minHeight:"100vh",color:T.text,fontFamily:"'JetBrains Mono', ui-monospace, monospace",fontWeight:T.weight.light,zoom:settings.textScale||1,width:"100%",maxWidth:"100vw",overflowX:"hidden"}}>
       {!isMob ? (
         <div style={{display:"grid", gridTemplateColumns:"220px 1fr", minHeight:"100vh"}}>
           {renderSidebar()}
@@ -1566,7 +1566,7 @@ export default function App() {
               </button>
             </div>
           )}
-          <div style={{padding:`${T.s[5]}px ${T.s[4]}px ${T.s[16]}px`}}>{renderTab()}</div>
+          <div style={{padding:`${T.s[5]}px ${T.s[4]}px ${T.s[16]}px`,maxWidth:"100vw",overflowX:"hidden"}}>{renderTab()}</div>
           <div style={{position:"fixed", bottom:0, left:0, right:0, background:T.bg, borderTop:T.rule1, display:"flex", paddingBottom:"env(safe-area-inset-bottom)", zIndex:99}}>
             {TABS.map((t,i) => (
               <button key={t.key} onClick={()=>{setTab(t.key); setMobileMenu(false);}}
