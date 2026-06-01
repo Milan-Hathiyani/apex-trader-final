@@ -2,44 +2,64 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=5" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Top 1%" />
+    <meta name="application-name" content="Top 1%" />
     <meta name="theme-color" content="#0a0a0a" />
+    <meta name="description" content="A trader's log, kept honestly." />
+
     <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png" />
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@200;300;400;500;700&display=swap" rel="stylesheet" />
-    <title>Top 1% / Ledger</title>
+
+    <title>Top 1% — Trading Journal</title>
     <style>
       *, *::before, *::after { box-sizing: border-box; }
-      html, body { margin: 0; padding: 0; background: #0a0a0a; }
+      html, body { margin: 0; padding: 0; background: #0a0a0a; min-height: 100vh; }
       body {
         font-family: 'JetBrains Mono', ui-monospace, monospace;
         font-weight: 300;
         font-variant-numeric: tabular-nums;
         -webkit-font-smoothing: antialiased;
         -webkit-tap-highlight-color: transparent;
+        overscroll-behavior-y: none;
       }
-      /* Ledger scrollbar */
       ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-thumb { background: #2a2620; }
       ::-webkit-scrollbar-track { background: transparent; }
-      /* Ledger inputs globally */
-      input, select, textarea {
+      input, select, textarea, button {
         font-family: 'JetBrains Mono', monospace;
         font-weight: 300;
       }
-      /* Ledger select arrow */
-      select { appearance: none; -webkit-appearance: none; }
-      /* Range sliders */
+      select { appearance: none; -webkit-appearance: none; background-position: right 8px center; background-repeat: no-repeat; padding-right: 24px; }
       input[type=range] { accent-color: #d4a747; }
+
+      /* iOS safe area */
+      @supports (padding: max(0px)) {
+        body { padding-bottom: env(safe-area-inset-bottom); }
+      }
     </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+
+    <!-- Service Worker for PWA -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
   </body>
 </html>

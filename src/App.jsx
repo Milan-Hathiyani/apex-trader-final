@@ -219,6 +219,13 @@ const emptyReview = (period) => ({
   date:today(), period, mentalState:"Good", whatWentWell:"", mistakes:"", missedSetups:"",
   rulesFollowed:"", emotionalTrading:"", regrets:"", improvements:"", selfCoaching:"",
 });
+const emptyPlan = (instr) => ({
+  date:today(), instrument:instr||"", bias:"Bullish", grade:"A",
+  keyLevels:"", setup:"", entryZone:"", sl:"", target1:"", target2:"",
+  invalidation:"", confluences:"", notes:"",
+  outcome:"", status:"open",  // "open" | "executed" | "cancelled"
+  linkedTradeIds:[],
+});
 
 /* ════════════════════════════════════════════════════════════
    REUSABLE COMPONENTS
@@ -258,11 +265,13 @@ export default function App() {
   const [loaded,     setLoaded]     = useState(false);
   const [tab,        setTab]        = useState("dashboard");
   const [isMob,      setIsMob]      = useState(window.innerWidth < 768);
-  const [drawer,     setDrawer]     = useState(null); // null | "settings" | "review" | "checklist" | "risk" | "customize"
+  const [drawer,     setDrawer]     = useState(null); // null | "settings" | "review" | "checklist" | "risk" | "customize" | "plans"
+  const [mobileMenu, setMobileMenu] = useState(false);
 
   // ── data state ───────────────────────────────────────────
   const [trades,   setTrades]   = useState([]);
   const [reviews,  setReviews]  = useState([]);
+  const [plans,    setPlans]    = useState([]);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [instruments, setInstruments] = useState(DEF_INSTRUMENTS);
   const [setups,    setSetups]    = useState(DEF_SETUPS);
@@ -275,6 +284,9 @@ export default function App() {
   // ── form state ───────────────────────────────────────────
   const [tf, setTf] = useState(emptyTrade(DEF_INSTRUMENTS[0], DEF_SETUPS[0], DEF_EMOTIONS[0]));
   const [rf, setRf] = useState(emptyReview("daily"));
+  const [pf, setPf] = useState(emptyPlan(DEF_INSTRUMENTS[0]));
+  const [editingPlanId, setEditingPlanId] = useState(null);
+  const [reflectionDraft, setReflectionDraft] = useState({});
   const [reviewTab, setReviewTab] = useState("daily");
   const [analyticsView, setAnalyticsView] = useState("combined");
 
@@ -308,17 +320,20 @@ export default function App() {
   useEffect(() => {
     if (!activeUser) return;
     (async () => {
-      const [tList, rList, s, cust] = await Promise.all([
+      const [tList, rList, pList, s, cust] = await Promise.all([
         sbLoadList("trades",  activeUser),
         sbLoadList("reviews", activeUser),
+        sbLoadList("plans",   activeUser),
         sbLoadSettings(activeUser),
         sbLoadCustom(activeUser),
       ]);
       const tr = tList ?? lsGet(uk("trades")) ?? [];
       const rv = rList ?? lsGet(uk("reviews")) ?? [];
+      const pl = pList ?? lsGet(uk("plans"))   ?? [];
       const st = s    ?? lsGet(uk("settings")) ?? {...DEFAULT_SETTINGS, traderName:activeUser};
       setTrades(tr);  lsSet(uk("trades"), tr);
       setReviews(rv); lsSet(uk("reviews"), rv);
+      setPlans(pl);   lsSet(uk("plans"), pl);
       setSettings(st);lsSet(uk("settings"), st);
       if (cust) {
         cust.instruments  && setInstruments(cust.instruments);
@@ -341,6 +356,7 @@ export default function App() {
   // ── persist helpers ──────────────────────────────────────
   const pTrades  = (l) => { setTrades(l);  lsSet(uk("trades"), l);  sbSaveList("trades",  l, activeUser); };
   const pReviews = (l) => { setReviews(l); lsSet(uk("reviews"), l); sbSaveList("reviews", l, activeUser); };
+  const pPlans   = (l) => { setPlans(l);   lsSet(uk("plans"),   l); sbSaveList("plans",   l, activeUser); };
   const pSettings= (s) => { setSettings(s);lsSet(uk("settings"),s); sbSaveSettings(s, activeUser); };
   const pCustom  = (k, v, setter) => {
     setter(v); lsSet(uk(k), v);
@@ -366,9 +382,59 @@ export default function App() {
   // ── log trade ────────────────────────────────────────────
   const logTrade = () => {
     if (!tf.entry || !tf.sl) return alert("Entry and SL required");
-    const final = applyCharges({ ...tf, id: Date.now() });
+    // Capture checklist snapshot at moment of trade
+    const checklistSnapshot = Object.entries(checks).flatMap(([section, items], si) =>
+      items.map((item, i) => {
+        const gi = Object.values(checks).slice(0,si).flat().length + i;
+        return { section, item, state: ck[gi] || "—" };
+      })
+    );
+    const checkedYes = checklistSnapshot.filter(c=>c.state==="yes").length;
+    const checkedNo  = checklistSnapshot.filter(c=>c.state==="no").length;
+    // Find matching open plan and auto-link
+    const matchPlan = plans.find(p => p.status === "open" && p.instrument === tf.instrument);
+    const tradeId = Date.now();
+    const final = applyCharges({
+      ...tf,
+      id: tradeId,
+      checklist: checklistSnapshot,
+      checklistYes: checkedYes,
+      checklistNo:  checkedNo,
+      checklistTotal: checklistSnapshot.length,
+      postReflection: tf.postReflection || "",
+      planId: matchPlan?.id || null,
+    });
     pTrades([final, ...trades]);
+    if (matchPlan) {
+      pPlans(plans.map(p => p.id === matchPlan.id
+        ? {...p, linkedTradeIds: [...(p.linkedTradeIds||[]), tradeId], status: "executed"}
+        : p));
+    }
     setTf(emptyTrade(instruments[0], setups[0], emotions[0]));
+  };
+  const updateTrade = (id, patch) => {
+    pTrades(trades.map(t => t.id === id ? {...t, ...patch} : t));
+  };
+
+  // Plan CRUD
+  const savePlan = () => {
+    if (!pf.instrument) return alert("Pick an instrument");
+    if (editingPlanId) {
+      pPlans(plans.map(p => p.id === editingPlanId ? {...pf, id: editingPlanId} : p));
+      setEditingPlanId(null);
+    } else {
+      pPlans([{...pf, id: Date.now()}, ...plans]);
+    }
+    setPf(emptyPlan(instruments[0]));
+  };
+  const editPlan = (p) => { setPf(p); setEditingPlanId(p.id); setDrawer("plans"); };
+  const delPlan  = (id) => { if(confirm("Delete this plan?")) pPlans(plans.filter(p=>p.id!==id)); };
+  const linkTradeToPlan = (planId, tradeId) => {
+    pPlans(plans.map(p => p.id===planId ? {...p, linkedTradeIds:[...(p.linkedTradeIds||[]).filter(x=>x!==tradeId), tradeId], status: "executed"} : p));
+    pTrades(trades.map(t => t.id===tradeId ? {...t, planId} : t));
+  };
+  const updatePlanOutcome = (id, outcome) => {
+    pPlans(plans.map(p => p.id === id ? {...p, outcome} : p));
   };
   const delTrade = (id) => pTrades(trades.filter(t=>t.id!==id));
 
@@ -494,8 +560,8 @@ export default function App() {
     <div style={{background:T.bg,minHeight:"100vh",color:T.text,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light,display:"flex",alignItems:"center",justifyContent:"center",padding:T.s[5]}}>
       <div style={{width:"100%",maxWidth:420}}>
         <div style={{marginBottom:T.s[10]}}>
-          <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em"}}>top_one_percent</div>
-          <div style={{fontSize:T.size.h1,fontWeight:T.weight.thin,letterSpacing:"-.02em",marginTop:T.s[2]}}>./ledger</div>
+          <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em"}}>trading journal</div>
+          <div style={{fontSize:T.size.h1,fontWeight:T.weight.thin,letterSpacing:"-.02em",marginTop:T.s[2]}}>Top 1%</div>
           <div style={{color:T.mut,fontSize:T.size.body,marginTop:T.s[3]}}>A trader's log, kept honestly.</div>
         </div>
 
@@ -622,9 +688,45 @@ export default function App() {
 
   /* ── JOURNAL — clean single-column form ── */
   const updateTf = (patch) => setTf(prev => applyCharges({ ...prev, ...patch }));
-  const Journal = () => (
+  const Journal = () => {
+    // Find matching open plan for current instrument
+    const matchingPlan = plans.find(p => p.status === "open" && p.instrument === tf.instrument);
+    // Checklist completion
+    const allItems = Object.values(checks).flat();
+    const yesCnt = allItems.filter((_,i)=>ck[i]==="yes").length;
+    const noCnt  = allItems.filter((_,i)=>ck[i]==="no").length;
+    const pct = allItems.length ? Math.round(yesCnt/allItems.length*100) : 0;
+
+    return (
     <div style={{maxWidth:560, margin:"0 auto"}}>
       <Sec n="01" title="new entry"/>
+
+      {/* Pre-trade status banner: checklist + plan */}
+      <div style={{display:"grid",gridTemplateColumns:matchingPlan?"1fr 1fr":"1fr",gap:T.s[3],marginBottom:T.s[6]}}>
+        {/* Checklist status */}
+        <div onClick={()=>setDrawer("checklist")} style={{padding:T.s[4],border:T.rule1,cursor:"pointer"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+            <span style={sty.label}>checklist</span>
+            <span style={{color:pct>=80?T.gr:pct>=50?T.amb:T.mut,fontSize:T.size.h3,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light}}>{pct}%</span>
+          </div>
+          <div style={{display:"flex",gap:T.s[3],marginTop:T.s[2],fontSize:T.size.tiny,color:T.mut}}>
+            <span><span style={{color:T.gr}}>{yesCnt}</span> yes</span>
+            <span><span style={{color:T.rd}}>{noCnt}</span> no</span>
+            <span style={{color:T.mut2,marginLeft:"auto"}}>tap to edit →</span>
+          </div>
+        </div>
+        {/* Matching plan */}
+        {matchingPlan && (
+          <div onClick={()=>{linkTradeToPlan(matchingPlan.id, null); setDrawer("plans");}} style={{padding:T.s[4],border:`1px solid ${T.amb}`,cursor:"pointer"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+              <span style={{...sty.label,color:T.amb}}>plan ready</span>
+              <span style={{color:matchingPlan.bias==="Bullish"?T.gr:matchingPlan.bias==="Bearish"?T.rd:T.mut,fontSize:T.size.small}}>{matchingPlan.bias?.toLowerCase()}</span>
+            </div>
+            <div style={{color:T.text,fontSize:T.size.small,marginTop:T.s[2],overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{matchingPlan.setup||"—"}</div>
+            {matchingPlan.target1 && <div style={{fontSize:T.size.tiny,color:T.mut,marginTop:T.s[1]}}>sl {matchingPlan.sl} · t1 {matchingPlan.target1}</div>}
+          </div>
+        )}
+      </div>
 
       {/* instrument pills */}
       <div style={{marginBottom:T.s[5]}}>
@@ -728,7 +830,8 @@ export default function App() {
 
       <button onClick={logTrade} style={{...sty.btn("primary"), width:"100%", padding:`${T.s[4]}px`, fontSize:T.size.body}}>log trade →</button>
     </div>
-  );
+    );
+  };
 
   /* ── TRADES — clean list, expand on click ── */
   const filteredTrades = trades.filter(t => {
@@ -781,29 +884,27 @@ export default function App() {
                 </div>
 
                 {exp && (
-                  <div style={{padding:`${T.s[4]}px ${T.s[2]}px ${T.s[5]}px`, background:T.surf}}>
-                    <div style={{display:"grid", gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)", gap:T.s[4]}}>
+                  <div style={{padding:`${T.s[5]}px ${T.s[3]}px ${T.s[6]}px`, background:T.surf}}>
+                    {/* trade detail grid */}
+                    <div style={{...sty.label,marginBottom:T.s[3]}}>trade detail</div>
+                    <div style={{display:"grid", gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)", gap:T.s[4], marginBottom:T.s[6]}}>
                       {[
                         ["date & time",   `${t.date} ${t.time||""}`],
                         ["segment",       t.segment||"—"],
                         ["trade type",    t.tradeType||"—"],
-                        ["setup",         t.setup||"—"],
+                        ["direction",     t.direction, t.direction==="Long"?T.gr:T.rd],
                         ["entry",         t.entry||"—"],
                         ["exit",          t.exitPrice||"—"],
                         ["stop loss",     t.sl||"—"],
                         ["size",          t.size||"—"],
                         ["gross p&l",     t.grossPnl?fmt(parseFloat(t.grossPnl)):"—", parseFloat(t.grossPnl||0)>=0?T.gr:T.rd],
-                        ["total charges", t.totalCharges?fmt2(parseFloat(t.totalCharges)):"—", T.rd],
+                        ["charges",       t.totalCharges?fmt2(parseFloat(t.totalCharges)):"—", T.rd],
                         ["net p&l",       fmt(net), net>=0?T.gr:T.rd],
                         ["r:r achieved",  t.rrAchieved||"—", T.amb],
-                        ["brokerage",     t.brokerage?fmt2(parseFloat(t.brokerage)):"—", T.rd],
-                        ["stt/ctt",       t.stt?fmt2(parseFloat(t.stt)):"—", T.rd],
-                        ["gst",           t.gst?fmt2(parseFloat(t.gst)):"—", T.rd],
-                        ["stamp duty",    t.stamp?fmt2(parseFloat(t.stamp)):"—", T.rd],
                         ["grade",         t.grade||"—", t.grade==="A+"?T.amb:T.text],
                         ["rules",         t.followedRules||"—", t.followedRules==="Yes"?T.gr:t.followedRules==="No"?T.rd:T.mut],
                         ["emotion",       t.emotion||"—"],
-                        ["direction",     t.direction, t.direction==="Long"?T.gr:T.rd],
+                        ["setup",         t.setup||"—"],
                       ].map(([l,v,c]) => (
                         <div key={l}>
                           <div style={sty.label}>{l}</div>
@@ -811,8 +912,48 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+
+                    {/* Linked plan */}
+                    {t.planId && plans.find(p=>p.id===t.planId) && (() => {
+                      const p = plans.find(pl=>pl.id===t.planId);
+                      return (
+                        <div style={{borderTop:T.rule1,borderBottom:T.rule1,padding:`${T.s[4]}px 0`,marginBottom:T.s[5]}}>
+                          <div style={{...sty.label,color:T.amb,marginBottom:T.s[3]}}>linked plan · {p.bias?.toLowerCase()} · {p.date}</div>
+                          {p.setup && <div style={{color:T.text,fontSize:T.size.small,marginBottom:T.s[2]}}>{p.setup}</div>}
+                          {(p.sl||p.target1) && (
+                            <div style={{display:"flex",gap:T.s[5],fontSize:T.size.small,color:T.mut}}>
+                              {p.sl && <span>sl&nbsp;<span style={{color:T.rd}}>{p.sl}</span></span>}
+                              {p.target1 && <span>t1&nbsp;<span style={{color:T.gr}}>{p.target1}</span></span>}
+                              {p.target2 && <span>t2&nbsp;<span style={{color:T.gr}}>{p.target2}</span></span>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Checklist snapshot */}
+                    {t.checklist && t.checklist.length > 0 && (
+                      <div style={{borderTop:T.rule1,borderBottom:T.rule1,padding:`${T.s[4]}px 0`,marginBottom:T.s[5]}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:T.s[3]}}>
+                          <span style={{...sty.label,color:T.amb}}>checklist at time of trade</span>
+                          <span style={{color:T.mut,fontSize:T.size.small}}>
+                            <span style={{color:T.gr}}>{t.checklistYes||0}</span> yes · <span style={{color:T.rd}}>{t.checklistNo||0}</span> no
+                          </span>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:T.s[2]}}>
+                          {t.checklist.map((c,i) => (
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:T.s[2],fontSize:T.size.small}}>
+                              <span style={{width:14,color:c.state==="yes"?T.gr:c.state==="no"?T.rd:T.mut2,fontFamily:"'JetBrains Mono', monospace"}}>{c.state==="yes"?"✓":c.state==="no"?"✗":"·"}</span>
+                              <span style={{color:c.state==="yes"?T.text:c.state==="no"?T.mut:T.mut2}}>{c.item}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Notes, mistakes, improvements */}
                     {(t.notes || t.mistakes || t.improvements) && (
-                      <div style={{marginTop:T.s[5], display:"grid", gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr", gap:T.s[5]}}>
+                      <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"1fr 1fr 1fr", gap:T.s[5], marginBottom:T.s[5]}}>
                         {[["notes",t.notes],["mistakes",t.mistakes],["improvements",t.improvements]].filter(([,v])=>v).map(([l,v]) => (
                           <div key={l}>
                             <div style={sty.label}>{l}</div>
@@ -821,7 +962,25 @@ export default function App() {
                         ))}
                       </div>
                     )}
-                    <div style={{marginTop:T.s[5], textAlign:"right"}}>
+
+                    {/* Post-trade reflection — editable */}
+                    <div style={{borderTop:T.rule1,paddingTop:T.s[4],marginBottom:T.s[4]}}>
+                      <label style={{...sty.label,color:T.amb,marginBottom:T.s[3]}}>post-trade reflection</label>
+                      <textarea
+                        style={{...sty.textarea, minHeight:80}}
+                        value={reflectionDraft[t.id] !== undefined ? reflectionDraft[t.id] : (t.postReflection||"")}
+                        onChange={e=>setReflectionDraft({...reflectionDraft,[t.id]:e.target.value})}
+                        placeholder="how did it play out? what did you learn? would you take it again?"
+                      />
+                      {reflectionDraft[t.id] !== undefined && reflectionDraft[t.id] !== t.postReflection && (
+                        <div style={{display:"flex",gap:T.s[2],marginTop:T.s[2]}}>
+                          <button onClick={()=>{updateTrade(t.id,{postReflection:reflectionDraft[t.id]}); const d={...reflectionDraft}; delete d[t.id]; setReflectionDraft(d);}} style={{...sty.btn("primary"),padding:`${T.s[2]}px ${T.s[4]}px`,fontSize:T.size.tiny}}>save reflection</button>
+                          <button onClick={()=>{const d={...reflectionDraft}; delete d[t.id]; setReflectionDraft(d);}} style={{...sty.btn(),padding:`${T.s[2]}px ${T.s[4]}px`,fontSize:T.size.tiny}}>cancel</button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{marginTop:T.s[4], textAlign:"right"}}>
                       <button onClick={()=>{if(confirm("Delete this trade?")) delTrade(t.id);}} style={{...sty.btn(),color:T.rd,border:`1px solid ${T.rd}`}}>delete trade</button>
                     </div>
                   </div>
@@ -920,11 +1079,128 @@ export default function App() {
 
       {drawer === "settings" && <SettingsPanel/>}
       {drawer === "risk" && <RiskPanel/>}
+      {drawer === "plans" && <PlansPanel/>}
       {drawer === "checklist" && <ChecklistPanel/>}
       {drawer === "review" && <ReviewPanel/>}
       {drawer === "customize" && <CustomizePanel/>}
     </div>
   );
+
+  const PlansPanel = () => {
+    const openPlans     = plans.filter(p => p.status === "open");
+    const executedPlans = plans.filter(p => p.status === "executed");
+    return (
+      <div>
+        <Sec n="01" title={editingPlanId ? "edit plan" : "new plan"}/>
+        <div style={{marginBottom:T.s[5]}}>
+          <label style={sty.label}>instrument</label>
+          <div style={{display:"flex",flexWrap:"wrap",gap:T.s[2]}}>
+            {instruments.map(i => (
+              <button key={i} onClick={()=>setPf({...pf,instrument:i})} style={{background:pf.instrument===i?T.amb:"transparent",color:pf.instrument===i?T.bg:T.mut,border:`1px solid ${pf.instrument===i?T.amb:T.mut2}`,padding:`${T.s[2]}px ${T.s[3]}px`,fontSize:T.size.small,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace"}}>{i}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{marginBottom:T.s[5]}}>
+          <label style={sty.label}>bias</label>
+          <div style={{display:"flex",gap:T.s[2]}}>
+            {[["Bullish","▲",T.gr],["Bearish","▼",T.rd],["Neutral","—",T.mut]].map(([b,ic,c])=>(
+              <button key={b} onClick={()=>setPf({...pf,bias:b})} style={{flex:1,background:pf.bias===b?c+"22":"transparent",color:pf.bias===b?c:T.mut,border:`1px solid ${pf.bias===b?c:T.mut2}`,padding:`${T.s[3]}px`,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.body,textTransform:"lowercase"}}>{ic} {b.toLowerCase()}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
+          <Field label="date"><input type="date" style={sty.input} value={pf.date} onChange={e=>setPf({...pf,date:e.target.value})}/></Field>
+          <Field label="setup grade"><select style={sty.select} value={pf.grade} onChange={e=>setPf({...pf,grade:e.target.value})}>{GRADES.map(g=><option key={g}>{g}</option>)}</select></Field>
+        </div>
+        {[
+          ["key s/r levels","keyLevels","support / resistance levels..."],
+          ["setup","setup","what's the setup?"],
+          ["entry zone","entryZone","where will you enter?"],
+          ["invalidation","invalidation","what invalidates this?"],
+          ["confluences","confluences","what confirms this?"],
+        ].map(([l,k,ph]) => (
+          <div key={k} style={{marginBottom:T.s[4]}}>
+            <Field label={l}><textarea style={sty.textarea} value={pf[k]} onChange={e=>setPf({...pf,[k]:e.target.value})} placeholder={ph}/></Field>
+          </div>
+        ))}
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
+          <Field label="stop loss"><input type="number" style={sty.input} value={pf.sl} onChange={e=>setPf({...pf,sl:e.target.value})}/></Field>
+          <Field label="target 1"><input type="number" style={sty.input} value={pf.target1} onChange={e=>setPf({...pf,target1:e.target.value})}/></Field>
+          <Field label="target 2"><input type="number" style={sty.input} value={pf.target2} onChange={e=>setPf({...pf,target2:e.target.value})}/></Field>
+        </div>
+        <Field label="notes"><textarea style={sty.textarea} value={pf.notes} onChange={e=>setPf({...pf,notes:e.target.value})} placeholder="anything else..."/></Field>
+        <div style={{display:"flex",gap:T.s[3],marginTop:T.s[5]}}>
+          <button onClick={savePlan} style={{...sty.btn("primary"),flex:1}}>{editingPlanId ? "update plan" : "save plan"}</button>
+          <button onClick={()=>{setPf(emptyPlan(instruments[0])); setEditingPlanId(null);}} style={{...sty.btn(),flex:1}}>clear</button>
+        </div>
+
+        {openPlans.length > 0 && (
+          <>
+            <Sec n="02" title={`open plans · ${openPlans.length}`}/>
+            {openPlans.map(p => (
+              <div key={p.id} style={{padding:`${T.s[4]}px 0`,borderBottom:T.rule1}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:T.s[2]}}>
+                  <div>
+                    <span style={{color:T.text,fontSize:T.size.body}}>{p.instrument}</span>
+                    <span style={{color:p.bias==="Bullish"?T.gr:p.bias==="Bearish"?T.rd:T.mut,fontSize:T.size.small,marginLeft:T.s[3]}}>{p.bias?.toLowerCase()}</span>
+                    <span style={{color:T.mut2,fontSize:T.size.small,marginLeft:T.s[3]}}>{p.date}</span>
+                    {p.grade==="A+" && <span style={{color:T.amb,fontSize:T.size.small,marginLeft:T.s[3]}}>A+</span>}
+                  </div>
+                  <div style={{display:"flex",gap:T.s[2]}}>
+                    <button onClick={()=>editPlan(p)} style={{...sty.btn(),padding:`${T.s[1]}px ${T.s[3]}px`,fontSize:T.size.tiny}}>edit</button>
+                    <button onClick={()=>delPlan(p.id)} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",fontSize:T.size.h3}}>×</button>
+                  </div>
+                </div>
+                {p.setup && <div style={{color:T.mut,fontSize:T.size.small,marginTop:T.s[2]}}><span style={{...sty.label,display:"inline"}}>setup&nbsp;</span>{p.setup}</div>}
+                {(p.sl || p.target1) && (
+                  <div style={{display:"flex",gap:T.s[5],marginTop:T.s[2],fontSize:T.size.small,color:T.mut}}>
+                    {p.sl && <span>sl&nbsp;<span style={{color:T.rd}}>{p.sl}</span></span>}
+                    {p.target1 && <span>t1&nbsp;<span style={{color:T.gr}}>{p.target1}</span></span>}
+                    {p.target2 && <span>t2&nbsp;<span style={{color:T.gr}}>{p.target2}</span></span>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </>
+        )}
+
+        {executedPlans.length > 0 && (
+          <>
+            <Sec n="03" title={`executed plans · ${executedPlans.length}`}/>
+            {executedPlans.map(p => {
+              const linkedTrades = trades.filter(t => (p.linkedTradeIds||[]).includes(t.id));
+              const totalPnl = linkedTrades.reduce((s,t)=>s+parseFloat(t.pnl||0),0);
+              return (
+                <div key={p.id} style={{padding:`${T.s[4]}px 0`,borderBottom:T.rule1}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
+                    <div>
+                      <span style={{color:T.text,fontSize:T.size.body}}>{p.instrument}</span>
+                      <span style={{color:p.bias==="Bullish"?T.gr:p.bias==="Bearish"?T.rd:T.mut,fontSize:T.size.small,marginLeft:T.s[3]}}>{p.bias?.toLowerCase()}</span>
+                      <span style={{color:T.mut2,fontSize:T.size.small,marginLeft:T.s[3]}}>{p.date}</span>
+                    </div>
+                    <span style={{color:totalPnl>=0?T.gr:T.rd,fontSize:T.size.body,fontFamily:"'JetBrains Mono', monospace"}}>{fmt(totalPnl)}</span>
+                  </div>
+                  <div style={{marginTop:T.s[3]}}>
+                    <label style={sty.label}>post-trade reflection</label>
+                    <textarea style={{...sty.textarea,minHeight:60}} value={p.outcome||""} onChange={e=>updatePlanOutcome(p.id,e.target.value)} placeholder="how did it actually play out? what did you learn?"/>
+                  </div>
+                  {linkedTrades.length > 0 && (
+                    <div style={{marginTop:T.s[3],fontSize:T.size.small,color:T.mut}}>
+                      linked trades: {linkedTrades.map(t => <span key={t.id} style={{color:parseFloat(t.pnl)>=0?T.gr:T.rd,marginRight:T.s[2]}}>{fmt(parseFloat(t.pnl))}</span>)}
+                    </div>
+                  )}
+                  <div style={{marginTop:T.s[3],display:"flex",gap:T.s[2]}}>
+                    <button onClick={()=>editPlan(p)} style={{...sty.btn(),padding:`${T.s[1]}px ${T.s[3]}px`,fontSize:T.size.tiny}}>edit</button>
+                    <button onClick={()=>delPlan(p.id)} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",fontSize:T.size.body}}>×</button>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+      </div>
+    );
+  };
 
   const SettingsPanel = () => {
     const [draft, setDraft] = useState(settings);
@@ -1169,8 +1445,8 @@ export default function App() {
   const Sidebar = () => (
     <aside style={{borderRight:T.rule1, padding:`${T.s[8]}px ${T.s[6]}px ${T.s[6]}px`, display:"flex", flexDirection:"column", background:T.bg, position:"sticky", top:0, height:"100vh", overflow:"auto"}}>
       <div>
-        <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em"}}>top_one_percent</div>
-        <div style={{fontSize:T.size.h1,fontWeight:T.weight.thin,letterSpacing:"-.02em",marginTop:T.s[2],color:T.text}}>./ledger</div>
+        <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em"}}>trading journal</div>
+        <div style={{fontSize:T.size.h1,fontWeight:T.weight.thin,letterSpacing:"-.02em",marginTop:T.s[2],color:T.text}}>Top 1%</div>
       </div>
 
       <nav style={{marginTop:T.s[10], flex:1}}>
@@ -1185,6 +1461,7 @@ export default function App() {
           <div style={{...sty.label,marginBottom:T.s[3]}}>tools</div>
           {[
             ["risk",      "risk calc"],
+            ["plans",     "trade plans"],
             ["checklist", "checklist"],
             ["review",    "review"],
             ["customize", "customize"],
@@ -1232,15 +1509,58 @@ export default function App() {
         </div>
       ) : (
         <>
-          <div style={{padding:`${T.s[3]}px ${T.s[4]}px`, borderBottom:T.rule1, display:"flex", justifyContent:"space-between", alignItems:"center", position:"sticky", top:0, background:T.bg, zIndex:50}}>
-            <div style={{color:T.text, fontSize:T.size.body, fontWeight:T.weight.thin}}>./ledger</div>
-            <button onClick={()=>setDrawer("settings")} style={{background:"transparent", border:"none", color:T.mut, cursor:"pointer"}}>⚙</button>
+          <div style={{padding:`${T.s[3]}px ${T.s[4]}px`, borderBottom:T.rule1, display:"flex", justifyContent:"space-between", alignItems:"center", position:"sticky", top:0, background:T.bg, zIndex:50, minHeight:54}}>
+            <div style={{display:"flex",alignItems:"center",gap:T.s[3]}}>
+              <span style={{color:T.amb,fontSize:T.size.h2,fontWeight:T.weight.bold,fontFamily:"'JetBrains Mono', monospace",letterSpacing:"-.02em"}}>1%</span>
+              <span style={{color:T.text, fontSize:T.size.body, fontWeight:T.weight.thin}}>Top 1%</span>
+            </div>
+            <button onClick={()=>setMobileMenu(v=>!v)} aria-label="Tools menu"
+              style={{background:"transparent", border:`1px solid ${T.mut2}`, color:T.text, cursor:"pointer",
+                      width:44, height:44, display:"flex", alignItems:"center", justifyContent:"center",
+                      fontSize:T.size.h3, fontFamily:"'JetBrains Mono', monospace", padding:0}}>
+              {mobileMenu ? "×" : "≡"}
+            </button>
           </div>
+
+          {/* Mobile tools menu — slides down */}
+          {mobileMenu && (
+            <div style={{position:"fixed",top:54,left:0,right:0,background:T.bg,borderBottom:T.rule1,zIndex:49,padding:`${T.s[3]}px ${T.s[4]}px`,boxShadow:"0 10px 30px rgba(0,0,0,0.5)"}}>
+              <div style={{...sty.label,marginBottom:T.s[3]}}>tools</div>
+              {[
+                ["risk",      "risk calculator"],
+                ["plans",     "trade plans"],
+                ["checklist", "checklist"],
+                ["review",    "review"],
+                ["customize", "customize"],
+                ["settings",  "settings"],
+              ].map(([k,l]) => (
+                <button key={k} onClick={()=>{setDrawer(k); setMobileMenu(false);}}
+                  style={{display:"block",width:"100%",textAlign:"left",
+                          background:"transparent",border:"none",borderBottom:T.rule1,
+                          padding:`${T.s[4]}px ${T.s[1]}px`,color:T.text,
+                          fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.body,
+                          cursor:"pointer",minHeight:48}}>
+                  · {l}
+                </button>
+              ))}
+              <div style={{padding:`${T.s[4]}px 0 ${T.s[2]}px`,fontSize:T.size.small,color:T.mut}}>
+                acct <span style={{color:T.text}}>{activeUser}</span> · today <span style={{color:todayPnl>=0?T.gr:T.rd}}>{fmt(todayPnl)}</span>
+              </div>
+              <button onClick={()=>{switchUser(); setMobileMenu(false);}}
+                style={{...sty.btn(),width:"100%",marginTop:T.s[3]}}>
+                switch profile
+              </button>
+            </div>
+          )}
           <div style={{padding:`${T.s[5]}px ${T.s[4]}px ${T.s[16]}px`}}>{renderTab()}</div>
           <div style={{position:"fixed", bottom:0, left:0, right:0, background:T.bg, borderTop:T.rule1, display:"flex", paddingBottom:"env(safe-area-inset-bottom)", zIndex:99}}>
             {TABS.map((t,i) => (
-              <button key={t.key} onClick={()=>setTab(t.key)} style={{flex:1, background:"transparent", border:"none", padding:`${T.s[3]}px 0`, cursor:"pointer", color:tab===t.key?T.amb:T.mut, fontFamily:"inherit", fontSize:T.size.tiny, textTransform:"uppercase", letterSpacing:".14em"}}>
-                <div style={{fontSize:T.size.small,color:T.mut2,marginBottom:2}}>{String(i+1).padStart(2,"0")}</div>
+              <button key={t.key} onClick={()=>{setTab(t.key); setMobileMenu(false);}}
+                style={{flex:1, background:"transparent", border:"none", padding:`${T.s[3]}px 0`, cursor:"pointer",
+                        color:tab===t.key?T.amb:T.mut, fontFamily:"inherit",
+                        fontSize:T.size.tiny, textTransform:"uppercase", letterSpacing:".14em",
+                        minHeight:56}}>
+                <div style={{fontSize:T.size.small,color:tab===t.key?T.amb:T.mut2,marginBottom:2}}>{String(i+1).padStart(2,"0")}</div>
                 {t.label}
               </button>
             ))}
