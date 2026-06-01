@@ -284,7 +284,7 @@ export default function App() {
   // ── form state ───────────────────────────────────────────
   const [tf, setTf] = useState(emptyTrade(DEF_INSTRUMENTS[0], DEF_SETUPS[0], DEF_EMOTIONS[0]));
   const [rf, setRf] = useState(emptyReview("daily"));
-  const [pf, setPf] = useState(emptyPlan(DEF_INSTRUMENTS[0]));
+  const [planF, setPlanF] = useState(emptyPlan(DEF_INSTRUMENTS[0]));
   const [editingPlanId, setEditingPlanId] = useState(null);
   const [reflectionDraft, setReflectionDraft] = useState({});
   const [reviewTab, setReviewTab] = useState("daily");
@@ -418,16 +418,16 @@ export default function App() {
 
   // Plan CRUD
   const savePlan = () => {
-    if (!pf.instrument) return alert("Pick an instrument");
+    if (!planF.instrument) return alert("Pick an instrument");
     if (editingPlanId) {
-      pPlans(plans.map(p => p.id === editingPlanId ? {...pf, id: editingPlanId} : p));
+      pPlans(plans.map(p => p.id === editingPlanId ? {...planF, id: editingPlanId} : p));
       setEditingPlanId(null);
     } else {
-      pPlans([{...pf, id: Date.now()}, ...plans]);
+      pPlans([{...planF, id: Date.now()}, ...plans]);
     }
-    setPf(emptyPlan(instruments[0]));
+    setPlanF(emptyPlan(instruments[0]));
   };
-  const editPlan = (p) => { setPf(p); setEditingPlanId(p.id); setDrawer("plans"); };
+  const editPlan = (p) => { setPlanF(p); setEditingPlanId(p.id); setDrawer("plans"); };
   const delPlan  = (id) => { if(confirm("Delete this plan?")) pPlans(plans.filter(p=>p.id!==id)); };
   const linkTradeToPlan = (planId, tradeId) => {
     pPlans(plans.map(p => p.id===planId ? {...p, linkedTradeIds:[...(p.linkedTradeIds||[]).filter(x=>x!==tradeId), tradeId], status: "executed"} : p));
@@ -1096,7 +1096,7 @@ export default function App() {
           <label style={sty.label}>instrument</label>
           <div style={{display:"flex",flexWrap:"wrap",gap:T.s[2]}}>
             {instruments.map(i => (
-              <button key={i} onClick={()=>setPf({...pf,instrument:i})} style={{background:pf.instrument===i?T.amb:"transparent",color:pf.instrument===i?T.bg:T.mut,border:`1px solid ${pf.instrument===i?T.amb:T.mut2}`,padding:`${T.s[2]}px ${T.s[3]}px`,fontSize:T.size.small,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace"}}>{i}</button>
+              <button key={i} onClick={()=>setPlanF({...planF,instrument:i})} style={{background:planF.instrument===i?T.amb:"transparent",color:planF.instrument===i?T.bg:T.mut,border:`1px solid ${planF.instrument===i?T.amb:T.mut2}`,padding:`${T.s[2]}px ${T.s[3]}px`,fontSize:T.size.small,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace"}}>{i}</button>
             ))}
           </div>
         </div>
@@ -1104,13 +1104,13 @@ export default function App() {
           <label style={sty.label}>bias</label>
           <div style={{display:"flex",gap:T.s[2]}}>
             {[["Bullish","▲",T.gr],["Bearish","▼",T.rd],["Neutral","—",T.mut]].map(([b,ic,c])=>(
-              <button key={b} onClick={()=>setPf({...pf,bias:b})} style={{flex:1,background:pf.bias===b?c+"22":"transparent",color:pf.bias===b?c:T.mut,border:`1px solid ${pf.bias===b?c:T.mut2}`,padding:`${T.s[3]}px`,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.body,textTransform:"lowercase"}}>{ic} {b.toLowerCase()}</button>
+              <button key={b} onClick={()=>setPlanF({...planF,bias:b})} style={{flex:1,background:planF.bias===b?c+"22":"transparent",color:planF.bias===b?c:T.mut,border:`1px solid ${planF.bias===b?c:T.mut2}`,padding:`${T.s[3]}px`,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.body,textTransform:"lowercase"}}>{ic} {b.toLowerCase()}</button>
             ))}
           </div>
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
-          <Field label="date"><input type="date" style={sty.input} value={pf.date} onChange={e=>setPf({...pf,date:e.target.value})}/></Field>
-          <Field label="setup grade"><select style={sty.select} value={pf.grade} onChange={e=>setPf({...pf,grade:e.target.value})}>{GRADES.map(g=><option key={g}>{g}</option>)}</select></Field>
+          <Field label="date"><input type="date" style={sty.input} value={planF.date} onChange={e=>setPlanF({...planF,date:e.target.value})}/></Field>
+          <Field label="setup grade"><select style={sty.select} value={planF.grade} onChange={e=>setPlanF({...planF,grade:e.target.value})}>{GRADES.map(g=><option key={g}>{g}</option>)}</select></Field>
         </div>
         {[
           ["key s/r levels","keyLevels","support / resistance levels..."],
@@ -1120,18 +1120,18 @@ export default function App() {
           ["confluences","confluences","what confirms this?"],
         ].map(([l,k,ph]) => (
           <div key={k} style={{marginBottom:T.s[4]}}>
-            <Field label={l}><textarea style={sty.textarea} value={pf[k]} onChange={e=>setPf({...pf,[k]:e.target.value})} placeholder={ph}/></Field>
+            <Field label={l}><textarea style={sty.textarea} value={pf[k]} onChange={e=>setPlanF({...planF,[k]:e.target.value})} placeholder={ph}/></Field>
           </div>
         ))}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
-          <Field label="stop loss"><input type="number" style={sty.input} value={pf.sl} onChange={e=>setPf({...pf,sl:e.target.value})}/></Field>
-          <Field label="target 1"><input type="number" style={sty.input} value={pf.target1} onChange={e=>setPf({...pf,target1:e.target.value})}/></Field>
-          <Field label="target 2"><input type="number" style={sty.input} value={pf.target2} onChange={e=>setPf({...pf,target2:e.target.value})}/></Field>
+          <Field label="stop loss"><input type="number" style={sty.input} value={planF.sl} onChange={e=>setPlanF({...planF,sl:e.target.value})}/></Field>
+          <Field label="target 1"><input type="number" style={sty.input} value={planF.target1} onChange={e=>setPlanF({...planF,target1:e.target.value})}/></Field>
+          <Field label="target 2"><input type="number" style={sty.input} value={planF.target2} onChange={e=>setPlanF({...planF,target2:e.target.value})}/></Field>
         </div>
-        <Field label="notes"><textarea style={sty.textarea} value={pf.notes} onChange={e=>setPf({...pf,notes:e.target.value})} placeholder="anything else..."/></Field>
+        <Field label="notes"><textarea style={sty.textarea} value={planF.notes} onChange={e=>setPlanF({...planF,notes:e.target.value})} placeholder="anything else..."/></Field>
         <div style={{display:"flex",gap:T.s[3],marginTop:T.s[5]}}>
           <button onClick={savePlan} style={{...sty.btn("primary"),flex:1}}>{editingPlanId ? "update plan" : "save plan"}</button>
-          <button onClick={()=>{setPf(emptyPlan(instruments[0])); setEditingPlanId(null);}} style={{...sty.btn(),flex:1}}>clear</button>
+          <button onClick={()=>{setPlanF(emptyPlan(instruments[0])); setEditingPlanId(null);}} style={{...sty.btn(),flex:1}}>clear</button>
         </div>
 
         {openPlans.length > 0 && (
