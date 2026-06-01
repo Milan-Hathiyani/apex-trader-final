@@ -74,7 +74,9 @@ const sty = {
     fontSize:   T.size.small,
     textTransform:"uppercase", letterSpacing:".16em",
     cursor:"pointer", fontFamily:"'JetBrains Mono', monospace",
-    fontWeight:T.weight.medium, minHeight:40,
+    fontWeight:T.weight.medium, minHeight:44,
+    touchAction:"manipulation",
+    WebkitTapHighlightColor:"rgba(212,167,71,0.2)",
   }),
   // Hero number
   heroNum: (color=T.text, size=T.size.hero) => ({
@@ -289,6 +291,9 @@ export default function App() {
   const [reflectionDraft, setReflectionDraft] = useState({});
   const [reviewTab, setReviewTab] = useState("daily");
   const [analyticsView, setAnalyticsView] = useState("combined");
+  const [settingsDraft, setSettingsDraft] = useState(DEFAULT_SETTINGS);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+  const [editListInput, setEditListInput] = useState({});
 
   // ── trades view state ────────────────────────────────────
   const [search,      setSearch]      = useState("");
@@ -335,6 +340,7 @@ export default function App() {
       setReviews(rv); lsSet(uk("reviews"), rv);
       setPlans(pl);   lsSet(uk("plans"), pl);
       setSettings(st);lsSet(uk("settings"), st);
+      setSettingsDraft(st);
       if (cust) {
         cust.instruments  && setInstruments(cust.instruments);
         cust.setups       && setSetups(cust.setups);
@@ -602,7 +608,7 @@ export default function App() {
   ];
 
   /* ── DASHBOARD ── */
-  const Dashboard = () => (
+  const renderDashboard = () => (
     <div>
       {/* hero */}
       <div style={{marginBottom:T.s[10]}}>
@@ -688,7 +694,7 @@ export default function App() {
 
   /* ── JOURNAL — clean single-column form ── */
   const updateTf = (patch) => setTf(prev => applyCharges({ ...prev, ...patch }));
-  const Journal = () => {
+  const renderJournal = () => {
     // Find matching open plan for current instrument
     const matchingPlan = plans.find(p => p.status === "open" && p.instrument === tf.instrument);
     // Checklist completion
@@ -845,7 +851,7 @@ export default function App() {
   });
   const filtPnl  = filteredTrades.filter(t=>t.pnl).reduce((s,t)=>s+parseFloat(t.pnl),0);
 
-  const Trades = () => (
+  const renderTrades = () => (
     <div>
       <Sec n="01" title={`all trades · ${trades.length}`} right={`net ${fmt(filtPnl)}`}/>
 
@@ -1002,7 +1008,7 @@ export default function App() {
   const aPnl  = aData.reduce((s,t)=>s+parseFloat(t.pnl||0),0);
   const aWins = aData.filter(t=>parseFloat(t.pnl)>0).length;
   const aWR   = aData.length ? (aWins/aData.length*100).toFixed(1) : "0";
-  const Analytics = () => (
+  const renderAnalytics = () => (
     <div>
       {/* view tabs */}
       <div style={{display:"flex",gap:T.s[3],marginBottom:T.s[6],borderBottom:T.rule1}}>
@@ -1067,7 +1073,7 @@ export default function App() {
   );
 
   /* ── SETTINGS DRAWER ── */
-  const SettingsDrawer = () => (
+  const renderDrawer = () => (
     <div style={{position:"fixed", top:0, right:0, bottom:0, width:isMob?"100%":480, background:T.bg, borderLeft:T.rule1, zIndex:1000, overflow:"auto", padding:`${T.s[6]}px ${T.s[6]}px ${T.s[10]}px`, boxShadow:"-20px 0 40px rgba(0,0,0,0.4)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:T.s[8]}}>
         <div>
@@ -1077,16 +1083,16 @@ export default function App() {
         <button onClick={()=>setDrawer(null)} style={{background:"transparent",border:"none",color:T.mut,cursor:"pointer",fontSize:24,padding:T.s[2]}}>×</button>
       </div>
 
-      {drawer === "settings" && <SettingsPanel/>}
-      {drawer === "risk" && <RiskPanel/>}
-      {drawer === "plans" && <PlansPanel/>}
-      {drawer === "checklist" && <ChecklistPanel/>}
-      {drawer === "review" && <ReviewPanel/>}
-      {drawer === "customize" && <CustomizePanel/>}
+      {drawer === "settings" && renderSettings()}
+      {drawer === "risk" && renderRisk()}
+      {drawer === "plans" && renderPlans()}
+      {drawer === "checklist" && renderChecklist()}
+      {drawer === "review" && renderReview()}
+      {drawer === "customize" && renderCustomize()}
     </div>
   );
 
-  const PlansPanel = () => {
+  const renderPlans = () => {
     const openPlans     = plans.filter(p => p.status === "open");
     const executedPlans = plans.filter(p => p.status === "executed");
     return (
@@ -1120,7 +1126,7 @@ export default function App() {
           ["confluences","confluences","what confirms this?"],
         ].map(([l,k,ph]) => (
           <div key={k} style={{marginBottom:T.s[4]}}>
-            <Field label={l}><textarea style={sty.textarea} value={pf[k]} onChange={e=>setPlanF({...planF,[k]:e.target.value})} placeholder={ph}/></Field>
+            <Field label={l}><textarea style={sty.textarea} value={planF[k]||""} onChange={e=>setPlanF({...planF,[k]:e.target.value})} placeholder={ph}/></Field>
           </div>
         ))}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
@@ -1202,10 +1208,11 @@ export default function App() {
     );
   };
 
-  const SettingsPanel = () => {
-    const [draft, setDraft] = useState(settings);
-    const [saved, setSaved] = useState(false);
-    const save = () => { pSettings(draft); setSaved(true); setTimeout(()=>setSaved(false),2000); };
+  const renderSettings = () => {
+    const draft = settingsDraft;
+    const setDraft = setSettingsDraft;
+    const saved = settingsSaved;
+    const save = () => { pSettings(draft); setSettingsSaved(true); setTimeout(()=>setSettingsSaved(false),2000); };
     return (
       <div>
         {saved && <div style={{padding:T.s[3], border:`1px solid ${T.gr}`, color:T.gr, marginBottom:T.s[5], fontSize:T.size.small}}>✓ saved</div>}
@@ -1260,7 +1267,7 @@ export default function App() {
     );
   };
 
-  const RiskPanel = () => (
+  const renderRisk = () => (
     <div>
       <Sec n="01" title="parameters"/>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
@@ -1310,7 +1317,7 @@ export default function App() {
     </div>
   );
 
-  const ChecklistPanel = () => {
+  const renderChecklist = () => {
     let gi = 0;
     const total = Object.values(checks).flat().length;
     const totalYes = Object.values(checks).flat().filter((_,i)=>ck[i]==="yes").length;
@@ -1343,7 +1350,7 @@ export default function App() {
     );
   };
 
-  const ReviewPanel = () => {
+  const renderReview = () => {
     const periods = ["daily","weekly","monthly"];
     return (
       <div>
@@ -1408,33 +1415,36 @@ export default function App() {
     );
   };
 
-  const CustomizePanel = () => {
-    const EditList = ({ title, items, storeKey, setter, defaults, n }) => {
-      const [val, setVal] = useState("");
-      const add = () => { const v=val.trim(); if(!v||items.includes(v)) return; pCustom(storeKey, [...items,v], setter); setVal(""); };
-      return (
-        <div style={{marginBottom:T.s[6]}}>
-          <Sec n={n} title={title}/>
-          <div style={{display:"flex",gap:T.s[3],marginBottom:T.s[4]}}>
-            <input style={sty.input} value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="add new..."/>
-            <button onClick={add} style={sty.btn("primary")}>add</button>
-          </div>
-          <div style={{display:"flex",flexWrap:"wrap",gap:T.s[2]}}>
-            {items.map(i => (
-              <div key={i} style={{display:"flex",alignItems:"center",gap:T.s[2],border:T.rule1,padding:`${T.s[1]}px ${T.s[3]}px`,fontSize:T.size.small,color:T.text}}>
-                {i}<button onClick={()=>pCustom(storeKey, items.filter(x=>x!==i), setter)} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",padding:0,fontSize:14}}>×</button>
-              </div>
-            ))}
-          </div>
+  const renderEditList = ({ title, items, storeKey, setter, defaults, n }) => {
+    const val = editListInput[storeKey] || "";
+    const setVal = (v) => setEditListInput(prev => ({...prev, [storeKey]: v}));
+    const add = () => { const v=val.trim(); if(!v||items.includes(v)) return; pCustom(storeKey, [...items,v], setter); setVal(""); };
+    return (
+      <div key={storeKey} style={{marginBottom:T.s[6]}}>
+        <Sec n={n} title={title}/>
+        <div style={{display:"flex",gap:T.s[3],marginBottom:T.s[4]}}>
+          <input style={sty.input} value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="add new..."/>
+          <button onClick={add} style={sty.btn("primary")}>add</button>
         </div>
-      );
-    };
+        <div style={{display:"flex",flexWrap:"wrap",gap:T.s[2]}}>
+          {items.map(i => (
+            <div key={i} style={{display:"flex",alignItems:"center",gap:T.s[2],border:T.rule1,padding:`${T.s[1]}px ${T.s[3]}px`,fontSize:T.size.small,color:T.text}}>
+              {i}<button onClick={()=>pCustom(storeKey, items.filter(x=>x!==i), setter)} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",padding:0,fontSize:14}}>×</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCustomize = () => {
+    const EditList = renderEditList;
     return (
       <div>
-        <EditList n="01" title="instruments" items={instruments} storeKey="instruments" setter={setInstruments} defaults={DEF_INSTRUMENTS}/>
-        <EditList n="02" title="setups" items={setups} storeKey="setups" setter={setSetups} defaults={DEF_SETUPS}/>
-        <EditList n="03" title="emotions" items={emotions} storeKey="emotions" setter={setEmotions} defaults={DEF_EMOTIONS}/>
-        <EditList n="04" title="trade types" items={tradeTypes} storeKey="tradeTypes" setter={setTradeTypes} defaults={DEF_TYPES}/>
+        {renderEditList({n:"01", title:"instruments", items:instruments, storeKey:"instruments", setter:setInstruments, defaults:DEF_INSTRUMENTS})}
+        {renderEditList({n:"02", title:"setups", items:setups, storeKey:"setups", setter:setSetups, defaults:DEF_SETUPS})}
+        {renderEditList({n:"03", title:"emotions", items:emotions, storeKey:"emotions", setter:setEmotions, defaults:DEF_EMOTIONS})}
+        {renderEditList({n:"04", title:"trade types", items:tradeTypes, storeKey:"tradeTypes", setter:setTradeTypes, defaults:DEF_TYPES})}
       </div>
     );
   };
@@ -1442,7 +1452,7 @@ export default function App() {
   /* ────────────────────────────────────────────────────────
      LAYOUT
   ──────────────────────────────────────────────────────── */
-  const Sidebar = () => (
+  const renderSidebar = () => (
     <aside style={{borderRight:T.rule1, padding:`${T.s[8]}px ${T.s[6]}px ${T.s[6]}px`, display:"flex", flexDirection:"column", background:T.bg, position:"sticky", top:0, height:"100vh", overflow:"auto"}}>
       <div>
         <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em"}}>trading journal</div>
@@ -1487,11 +1497,11 @@ export default function App() {
 
   const renderTab = () => {
     switch(tab) {
-      case "dashboard": return <Dashboard/>;
-      case "journal":   return <Journal/>;
-      case "trades":    return <Trades/>;
-      case "analytics": return <Analytics/>;
-      default:          return <Dashboard/>;
+      case "dashboard": return renderDashboard();
+      case "journal":   return renderJournal();
+      case "trades":    return renderTrades();
+      case "analytics": return renderAnalytics();
+      default:          return renderDashboard();
     }
   };
 
@@ -1499,7 +1509,7 @@ export default function App() {
     <div style={{background:T.bg, minHeight:"100vh", color:T.text, fontFamily:"'JetBrains Mono', ui-monospace, monospace", fontWeight:T.weight.light, zoom:settings.textScale||1}}>
       {!isMob ? (
         <div style={{display:"grid", gridTemplateColumns:"220px 1fr", minHeight:"100vh"}}>
-          <Sidebar/>
+          {renderSidebar()}
           <main style={{padding:`${T.s[8]}px ${T.s[12]}px ${T.s[16]}px`, maxWidth:1100}}>
             <div style={{color:T.mut2, fontSize:T.size.label, letterSpacing:".2em", marginBottom:T.s[8]}}>
               ./ {tab} &nbsp;·&nbsp; screen {String(TABS.findIndex(t=>t.key===tab)+1).padStart(2,"0")} of {String(TABS.length).padStart(2,"0")}
@@ -1509,22 +1519,26 @@ export default function App() {
         </div>
       ) : (
         <>
-          <div style={{padding:`${T.s[3]}px ${T.s[4]}px`, borderBottom:T.rule1, display:"flex", justifyContent:"space-between", alignItems:"center", position:"sticky", top:0, background:T.bg, zIndex:50, minHeight:54}}>
+          <div style={{padding:`${T.s[3]}px ${T.s[4]}px`,borderBottom:T.rule1,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:T.bg,zIndex:50,minHeight:60,paddingTop:`calc(${T.s[3]}px + env(safe-area-inset-top))`}}>
             <div style={{display:"flex",alignItems:"center",gap:T.s[3]}}>
               <span style={{color:T.amb,fontSize:T.size.h2,fontWeight:T.weight.bold,fontFamily:"'JetBrains Mono', monospace",letterSpacing:"-.02em"}}>1%</span>
-              <span style={{color:T.text, fontSize:T.size.body, fontWeight:T.weight.thin}}>Top 1%</span>
+              <span style={{color:T.text,fontSize:T.size.body,fontWeight:T.weight.thin}}>Top 1%</span>
             </div>
             <button onClick={()=>setMobileMenu(v=>!v)} aria-label="Tools menu"
-              style={{background:"transparent", border:`1px solid ${T.mut2}`, color:T.text, cursor:"pointer",
-                      width:44, height:44, display:"flex", alignItems:"center", justifyContent:"center",
-                      fontSize:T.size.h3, fontFamily:"'JetBrains Mono', monospace", padding:0}}>
-              {mobileMenu ? "×" : "≡"}
+              style={{background:mobileMenu?T.amb:"transparent",color:mobileMenu?T.bg:T.amb,
+                      border:`1px solid ${T.amb}`,cursor:"pointer",
+                      minWidth:88,height:44,display:"flex",alignItems:"center",justifyContent:"center",gap:T.s[2],
+                      fontSize:T.size.small,fontFamily:"'JetBrains Mono', monospace",
+                      textTransform:"uppercase",letterSpacing:".14em",padding:`0 ${T.s[3]}px`,
+                      touchAction:"manipulation",WebkitTapHighlightColor:"rgba(212,167,71,0.3)"}}>
+              <span style={{fontSize:T.size.h3,lineHeight:1}}>{mobileMenu ? "×" : "≡"}</span>
+              <span>{mobileMenu ? "close" : "menu"}</span>
             </button>
           </div>
 
           {/* Mobile tools menu — slides down */}
           {mobileMenu && (
-            <div style={{position:"fixed",top:54,left:0,right:0,background:T.bg,borderBottom:T.rule1,zIndex:49,padding:`${T.s[3]}px ${T.s[4]}px`,boxShadow:"0 10px 30px rgba(0,0,0,0.5)"}}>
+            <div style={{position:"fixed",top:`calc(60px + env(safe-area-inset-top))`,left:0,right:0,background:T.bg,borderBottom:T.rule1,zIndex:49,padding:`${T.s[3]}px ${T.s[4]}px ${T.s[5]}px`,boxShadow:"0 10px 30px rgba(0,0,0,0.5)",maxHeight:"calc(100vh - 60px - env(safe-area-inset-top))",overflowY:"auto"}}>
               <div style={{...sty.label,marginBottom:T.s[3]}}>tools</div>
               {[
                 ["risk",      "risk calculator"],
@@ -1539,7 +1553,7 @@ export default function App() {
                           background:"transparent",border:"none",borderBottom:T.rule1,
                           padding:`${T.s[4]}px ${T.s[1]}px`,color:T.text,
                           fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.body,
-                          cursor:"pointer",minHeight:48}}>
+                          cursor:"pointer",minHeight:48,touchAction:"manipulation",WebkitTapHighlightColor:"rgba(212,167,71,0.2)"}}>
                   · {l}
                 </button>
               ))}
@@ -1556,10 +1570,10 @@ export default function App() {
           <div style={{position:"fixed", bottom:0, left:0, right:0, background:T.bg, borderTop:T.rule1, display:"flex", paddingBottom:"env(safe-area-inset-bottom)", zIndex:99}}>
             {TABS.map((t,i) => (
               <button key={t.key} onClick={()=>{setTab(t.key); setMobileMenu(false);}}
-                style={{flex:1, background:"transparent", border:"none", padding:`${T.s[3]}px 0`, cursor:"pointer",
-                        color:tab===t.key?T.amb:T.mut, fontFamily:"inherit",
-                        fontSize:T.size.tiny, textTransform:"uppercase", letterSpacing:".14em",
-                        minHeight:56}}>
+                style={{flex:1,background:"transparent",border:"none",padding:`${T.s[3]}px 0`,cursor:"pointer",
+                        color:tab===t.key?T.amb:T.mut,fontFamily:"inherit",
+                        fontSize:T.size.tiny,textTransform:"uppercase",letterSpacing:".14em",
+                        minHeight:56,touchAction:"manipulation",WebkitTapHighlightColor:"rgba(212,167,71,0.2)"}}>
                 <div style={{fontSize:T.size.small,color:tab===t.key?T.amb:T.mut2,marginBottom:2}}>{String(i+1).padStart(2,"0")}</div>
                 {t.label}
               </button>
@@ -1568,7 +1582,7 @@ export default function App() {
         </>
       )}
 
-      {drawer && <SettingsDrawer/>}
+      {drawer && renderDrawer()}
     </div>
   );
 }
