@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.02.1301";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.02.1651";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -430,6 +430,11 @@ export default function App() {
   const [reflectionDraft, setReflectionDraft] = useState({});
   const [reviewTab, setReviewTab] = useState("daily");
   const [analyticsView, setAnalyticsView] = useState("combined");
+  const [filterInst,  setFilterInst]  = useState("All");
+  const [filterDir,   setFilterDir]   = useState("All");
+  const [filterRules, setFilterRules] = useState("All");
+  const [filterGrade, setFilterGrade] = useState("All");
+  const [filterDOW,   setFilterDOW]   = useState("All");
   const [settingsDraft, setSettingsDraft] = useState(DEFAULT_SETTINGS);
   const [settingsSaved, setSettingsSaved] = useState(false);
   const [editListInput, setEditListInput] = useState({});
@@ -1083,6 +1088,32 @@ export default function App() {
         <Field label="emotion"><select style={sty.select} value={tf.emotion} onChange={e=>setTf({...tf,emotion:e.target.value})}>{emotions.map(e=><option key={e}>{e}</option>)}</select></Field>
       </div>
 
+      {/* MAE / MFE */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
+        <Field label="mae (max adverse)"><input type="number" style={sty.input} value={tf.mae||""} onChange={e=>setTf({...tf,mae:e.target.value})} placeholder="worst price during trade"/></Field>
+        <Field label="mfe (max favorable)"><input type="number" style={sty.input} value={tf.mfe||""} onChange={e=>setTf({...tf,mfe:e.target.value})} placeholder="best price during trade"/></Field>
+      </div>
+
+      {/* Rating */}
+      <div style={{marginBottom:T.s[5]}}>
+        <label style={sty.label}>execution quality (rating)</label>
+        <div style={{display:"flex",gap:T.s[2]}}>
+          {[1,2,3,4,5].map(n => (
+            <button key={n} onClick={()=>setTf({...tf,rating:(tf.rating===n?0:n)})}
+              style={{background:"transparent",border:"none",cursor:"pointer",color:(tf.rating||0)>=n?T.amb:T.mut2,fontSize:24,padding:T.s[2],touchAction:"manipulation"}}>★</button>
+          ))}
+          <span style={{color:T.mut,fontSize:T.size.small,alignSelf:"center",marginLeft:T.s[3]}}>{tf.rating||0}/5</span>
+        </div>
+      </div>
+
+      {/* Screenshot URL */}
+      <div style={{marginBottom:T.s[5]}}>
+        <Field label="screenshot url (optional)"><input type="url" style={sty.input} value={tf.screenshot||""} onChange={e=>setTf({...tf,screenshot:e.target.value})} placeholder="paste a tradingview / imgur link"/></Field>
+        {tf.screenshot && (
+          <img src={tf.screenshot} alt="trade" style={{marginTop:T.s[3],maxWidth:"100%",border:T.rule1}} onError={e=>{e.target.style.display="none";}}/>
+        )}
+      </div>
+
       {/* notes */}
       <div style={{marginBottom:T.s[5]}}>
         <Field label="notes (optional)"><textarea style={sty.textarea} value={tf.notes} onChange={e=>setTf({...tf,notes:e.target.value})} placeholder="setup context, mistakes, what to remember..."/></Field>
@@ -1380,79 +1411,454 @@ export default function App() {
   );
 
   /* ── ANALYTICS ── */
-  const byInst   = (list) => [...new Set(list.map(t=>t.instrument))].map(n => ({ name:n, v:Math.round(list.filter(t=>t.instrument===n).reduce((s,t)=>s+parseFloat(t.pnl||0),0)), n:list.filter(t=>t.instrument===n).length })).filter(d=>d.n>0).sort((a,b)=>b.v-a.v);
-  const byGrade  = (list) => GRADES.map(g => ({ g, v:Math.round(list.filter(t=>t.grade===g).reduce((s,t)=>s+parseFloat(t.pnl||0),0)), n:list.filter(t=>t.grade===g).length })).filter(d=>d.n>0);
-  const bySetup  = (list) => [...new Set(list.map(t=>t.setup))].map(s => ({ s, v:Math.round(list.filter(t=>t.setup===s).reduce((a,t)=>a+parseFloat(t.pnl||0),0)), n:list.filter(t=>t.setup===s).length })).filter(d=>d.n>0).sort((a,b)=>b.v-a.v).slice(0,8);
+  // ── Performance Score (Zella equivalent) ──
+  const calcScore = (list) => {
+    if (!list.length) return { total:0, parts:{winRate:0, pf:0, wlr:0, dd:0, cons:0} };
+    const wins = list.filter(t=>parseFloat(t.pnl)>0);
+    const losses = list.filter(t=>parseFloat(t.pnl)<=0);
+    const wr = wins.length / list.length;
+    const gw = wins.reduce((s,t)=>s+parseFloat(t.pnl||0),0);
+    const gl = Math.abs(losses.reduce((s,t)=>s+parseFloat(t.pnl||0),0));
+    const pfv = gl ? gw/gl : (gw>0?3:0);
+    const aw = wins.length ? gw/wins.length : 0;
+    const al = losses.length ? gl/losses.length : 0;
+    const wlr = al ? aw/al : (aw>0?3:0);
 
-  const aData = analyticsView==="intraday" ? closed.filter(t=>t.tradeType==="Intraday") : analyticsView==="swing" ? closed.filter(t=>t.tradeType!=="Intraday") : closed;
-  const aPnl  = aData.reduce((s,t)=>s+parseFloat(t.pnl||0),0);
-  const aWins = aData.filter(t=>parseFloat(t.pnl)>0).length;
-  const aWR   = aData.length ? (aWins/aData.length*100).toFixed(1) : "0";
-  const renderAnalytics = () => (
-    <div>
-      {/* view tabs */}
-      <div style={{display:"flex",gap:T.s[3],marginBottom:T.s[6],borderBottom:T.rule1}}>
-        {[["combined","combined"],["intraday","intraday"],["swing","swing"]].map(([k,l]) => (
-          <button key={k} onClick={()=>setAnalyticsView(k)} style={{background:"transparent",border:"none",color:analyticsView===k?T.amb:T.mut,padding:`${T.s[3]}px ${T.s[4]}px`,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.small,textTransform:"uppercase",letterSpacing:".14em",borderBottom:`1px solid ${analyticsView===k?T.amb:"transparent"}`,marginBottom:-1}}>{l}</button>
-        ))}
+    // Drawdown
+    let bal=0, peak=0, maxDD=0;
+    [...list].sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>{
+      bal += parseFloat(t.pnl||0);
+      if (bal>peak) peak = bal;
+      const dd = peak ? (bal-peak)/Math.max(peak,1) : 0;
+      if (dd<maxDD) maxDD=dd;
+    });
+
+    // Rule adherence
+    const ruleYes = list.filter(t=>t.followedRules==="Yes").length;
+    const cons = list.length ? ruleYes/list.length : 0;
+
+    // Normalize to 0-100
+    const sWR   = Math.min(100, Math.max(0, (wr-0.3)/0.3*100));     // 30%→0, 60%→100
+    const sPF   = Math.min(100, Math.max(0, (pfv-1)/1.5*100));      // 1.0→0, 2.5→100
+    const sWLR  = Math.min(100, Math.max(0, (wlr-1)/1.5*100));
+    const sDD   = Math.min(100, Math.max(0, (1+maxDD/0.2)*100));    // -20%→0, 0%→100
+    const sCons = cons*100;
+
+    // Weighted total
+    const total = sWR*0.25 + sPF*0.25 + sWLR*0.20 + sDD*0.15 + sCons*0.15;
+    return {
+      total: Math.round(total),
+      parts: { winRate:Math.round(sWR), pf:Math.round(sPF), wlr:Math.round(sWLR), dd:Math.round(sDD), cons:Math.round(sCons) },
+      maxDD: Math.round(maxDD*1000)/10,  // percentage
+      pf:    pfv,
+      wlr:   wlr,
+    };
+  };
+
+  // ── Drawdown calc with recovery ──
+  const calcDrawdown = (list) => {
+    if (!list.length) return { maxDD:0, current:0, longestLossStreak:0, peakDate:"", recoveryDays:null };
+    const sorted = [...list].sort((a,b)=>a.date.localeCompare(b.date));
+    let bal=0, peak=0, maxDD=0, peakDate="", curDD=0;
+    let curStreak=0, maxStreak=0;
+    let inDDsince=null, recoveryDays=null;
+    sorted.forEach(t => {
+      bal += parseFloat(t.pnl||0);
+      if (bal>peak) {
+        peak = bal;
+        peakDate = t.date;
+        if (inDDsince) {
+          const days = (new Date(t.date) - new Date(inDDsince))/(1000*60*60*24);
+          if (recoveryDays===null || days<recoveryDays) recoveryDays = Math.round(days);
+          inDDsince = null;
+        }
+      }
+      const dd = peak ? bal-peak : 0;
+      if (dd<maxDD) maxDD = dd;
+      if (dd<0 && !inDDsince) inDDsince = t.date;
+      curDD = dd;
+      if (parseFloat(t.pnl||0)<=0) { curStreak++; if (curStreak>maxStreak) maxStreak=curStreak; }
+      else curStreak = 0;
+    });
+    return { maxDD:Math.round(maxDD), current:Math.round(curDD), longestLossStreak:maxStreak, peakDate, recoveryDays };
+  };
+
+  // ── Setup expectancy ranking ──
+  const setupReport = (list) => {
+    const map = {};
+    list.forEach(t => {
+      const s = t.setup || "—";
+      if (!map[s]) map[s] = { setup:s, n:0, w:0, pnl:0 };
+      map[s].n++;
+      map[s].pnl += parseFloat(t.pnl||0);
+      if (parseFloat(t.pnl||0)>0) map[s].w++;
+    });
+    return Object.values(map)
+      .filter(d=>d.n>=2)  // need at least 2 trades for meaningful stats
+      .map(d=>({...d, winRate:d.n?d.w/d.n*100:0, ev:d.n?d.pnl/d.n:0}))
+      .sort((a,b)=>b.ev-a.ev);
+  };
+
+  // ── Tag frequency ──
+  const tagFreq = (list) => {
+    const counts = {};
+    list.forEach(t => {
+      [t.setup, t.emotion, t.grade, t.followedRules, t.tradeType].forEach(tag => {
+        if (tag && tag !== "—") counts[tag] = (counts[tag]||0)+1;
+      });
+      (t.tags||[]).forEach(tag => { if(tag) counts[tag] = (counts[tag]||0)+1; });
+    });
+    return Object.entries(counts).map(([k,v])=>({tag:k, n:v})).sort((a,b)=>b.n-a.n);
+  };
+
+  // ── Day-of-week breakdown ──
+  const byDayOfWeek = (list) => {
+    const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const map = days.map(d=>({day:d, pnl:0, n:0, w:0}));
+    list.forEach(t => {
+      const d = new Date(t.date).getDay();
+      if (!isNaN(d)) {
+        map[d].pnl += parseFloat(t.pnl||0);
+        map[d].n++;
+        if (parseFloat(t.pnl||0)>0) map[d].w++;
+      }
+    });
+    return map.filter(d=>d.n>0).map(d=>({...d, pnl:Math.round(d.pnl), wr:d.n?Math.round(d.w/d.n*100):0}));
+  };
+
+  // ── Hour-of-day breakdown (intraday only) ──
+  const byHourOfDay = (list) => {
+    const intraday = list.filter(t=>t.tradeType==="Intraday");
+    const map = {};
+    intraday.forEach(t => {
+      const h = parseInt((t.time||"00:00").split(":")[0]);
+      if (!isNaN(h)) {
+        if (!map[h]) map[h] = { hour:h, pnl:0, n:0 };
+        map[h].pnl += parseFloat(t.pnl||0);
+        map[h].n++;
+      }
+    });
+    return Object.values(map).sort((a,b)=>a.hour-b.hour).map(d=>({...d, pnl:Math.round(d.pnl), label:`${d.hour}h`}));
+  };
+
+  // ── Win vs Loss comparison ──
+  const winLossCompare = (list) => {
+    const wins = list.filter(t=>parseFloat(t.pnl)>0);
+    const losses = list.filter(t=>parseFloat(t.pnl)<=0);
+    const avg = (arr, key, abs=false) => {
+      if (!arr.length) return 0;
+      const s = arr.reduce((a,t)=>a+(abs?Math.abs(parseFloat(t[key]||0)):parseFloat(t[key]||0)),0);
+      return Math.round(s/arr.length*100)/100;
+    };
+    return {
+      wins:   { n:wins.length,   avgPnl:avg(wins,'pnl'),     avgRR:avg(wins,'rrAchieved'),     avgSize:avg(wins,'size'),     avgCharges:avg(wins,'totalCharges') },
+      losses: { n:losses.length, avgPnl:avg(losses,'pnl'),   avgRR:avg(losses,'rrAchieved'),   avgSize:avg(losses,'size'),   avgCharges:avg(losses,'totalCharges') },
+    };
+  };
+
+  // ── Performance Calendar ──
+  const calendarData = (list, monthsBack=2) => {
+    const map = {};
+    list.forEach(t => {
+      if (!map[t.date]) map[t.date] = 0;
+      map[t.date] += parseFloat(t.pnl||0);
+    });
+    const out = [];
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth() - monthsBack, 1);
+    const cur = new Date(start);
+    while (cur <= today) {
+      const k = cur.toISOString().slice(0,10);
+      out.push({ date:k, pnl:Math.round(map[k]||0), dayOfWeek:cur.getDay(), day:cur.getDate(), month:cur.getMonth() });
+      cur.setDate(cur.getDate()+1);
+    }
+    return out;
+  };
+
+  // ── Filter state for cross-filtering ──
+  const aData = (() => {
+    let list = closed;
+    if (analyticsView === "intraday") list = list.filter(t=>t.tradeType==="Intraday");
+    else if (analyticsView === "swing") list = list.filter(t=>t.tradeType!=="Intraday");
+    if (filterInst !== "All") list = list.filter(t=>t.instrument===filterInst);
+    if (filterDir  !== "All") list = list.filter(t=>t.direction===filterDir);
+    if (filterRules!== "All") list = list.filter(t=>t.followedRules===filterRules);
+    if (filterGrade!== "All") list = list.filter(t=>t.grade===filterGrade);
+    if (filterDOW  !== "All") list = list.filter(t=>{const d=new Date(t.date).getDay();return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]===filterDOW;});
+    return list;
+  })();
+
+  const renderAnalytics = () => {
+    const score   = calcScore(aData);
+    const dd      = calcDrawdown(aData);
+    const setups2 = setupReport(aData);
+    const tags    = tagFreq(aData).slice(0, 12);
+    const dow     = byDayOfWeek(aData);
+    const hod     = byHourOfDay(aData);
+    const wl      = winLossCompare(aData);
+    const cal     = calendarData(aData, 2);
+    const aPnl    = aData.reduce((s,t)=>s+parseFloat(t.pnl||0),0);
+
+    return (
+      <div>
+        {/* view tabs */}
+        <div style={{display:"flex",gap:T.s[3],marginBottom:T.s[5],borderBottom:T.rule1}}>
+          {[["combined","combined"],["intraday","intraday"],["swing","swing"]].map(([k,l]) => (
+            <button key={k} onClick={()=>setAnalyticsView(k)}
+              style={{background:"transparent",border:"none",color:analyticsView===k?T.amb:T.mut,padding:`${T.s[3]}px ${T.s[4]}px`,cursor:"pointer",fontFamily:"\'JetBrains Mono\', monospace",fontSize:T.size.small,textTransform:"uppercase",letterSpacing:".14em",borderBottom:`1px solid ${analyticsView===k?T.amb:"transparent"}`,marginBottom:-1}}>{l}</button>
+          ))}
+        </div>
+
+        {/* cross-filter chips */}
+        <div style={{display:"flex",flexWrap:"wrap",gap:T.s[2],marginBottom:T.s[6],alignItems:"center"}}>
+          <span style={{...sty.label}}>filter</span>
+          <select style={{...sty.select,width:"auto",minWidth:120}} value={filterInst} onChange={e=>setFilterInst(e.target.value)}>
+            <option>All</option>
+            {[...new Set(closed.map(t=>t.instrument).filter(Boolean))].map(i=><option key={i}>{i}</option>)}
+          </select>
+          <select style={{...sty.select,width:"auto",minWidth:90}} value={filterDir} onChange={e=>setFilterDir(e.target.value)}>
+            <option>All</option><option>Long</option><option>Short</option>
+          </select>
+          <select style={{...sty.select,width:"auto",minWidth:100}} value={filterRules} onChange={e=>setFilterRules(e.target.value)}>
+            <option>All</option><option>Yes</option><option>No</option><option>Partial</option>
+          </select>
+          <select style={{...sty.select,width:"auto",minWidth:80}} value={filterGrade} onChange={e=>setFilterGrade(e.target.value)}>
+            <option>All</option>{GRADES.map(g=><option key={g}>{g}</option>)}
+          </select>
+          <select style={{...sty.select,width:"auto",minWidth:90}} value={filterDOW} onChange={e=>setFilterDOW(e.target.value)}>
+            <option>All</option>{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=><option key={d}>{d}</option>)}
+          </select>
+          {(filterInst!=="All"||filterDir!=="All"||filterRules!=="All"||filterGrade!=="All"||filterDOW!=="All") && (
+            <button onClick={()=>{setFilterInst("All");setFilterDir("All");setFilterRules("All");setFilterGrade("All");setFilterDOW("All");}}
+              style={{background:"transparent",border:`1px solid ${T.rd}`,color:T.rd,padding:`${T.s[1]}px ${T.s[3]}px`,fontSize:T.size.tiny,cursor:"pointer",textTransform:"uppercase",letterSpacing:".14em"}}>clear</button>
+          )}
+          <span style={{color:T.mut,fontSize:T.size.small,marginLeft:"auto"}}>{aData.length} trades</span>
+        </div>
+
+        {/* §01 PERFORMANCE SCORE */}
+        <Sec n="01" title="performance score" right="0—100 composite"/>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"180px 1fr",gap:T.s[6],alignItems:"center",borderTop:T.rule1,borderBottom:T.rule1,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>
+          <div style={{textAlign:isMob?"left":"center"}}>
+            <div style={sty.heroNum(score.total>=70?T.gr:score.total>=40?T.amb:T.rd, isMob?T.size.h1:T.size.mega)}>{score.total}</div>
+            <div style={{color:T.mut,fontSize:T.size.small,marginTop:T.s[2]}}>{score.total>=70?"healthy":score.total>=40?"developing":"needs work"}</div>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(5,1fr)",gap:T.s[3]}}>
+            {[
+              {l:"win rate",  v:score.parts.winRate, weight:"25%"},
+              {l:"profit factor", v:score.parts.pf,  weight:"25%"},
+              {l:"win/loss ratio",v:score.parts.wlr, weight:"20%"},
+              {l:"drawdown", v:score.parts.dd,       weight:"15%"},
+              {l:"consistency",v:score.parts.cons,   weight:"15%"},
+            ].map(({l,v,weight})=>(
+              <div key={l} style={{padding:`${T.s[2]}px 0`}}>
+                <div style={sty.label}>{l}</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:T.s[2]}}>
+                  <span style={{color:v>=70?T.gr:v>=40?T.amb:T.rd,fontSize:T.size.h3,fontFamily:"\'JetBrains Mono\', monospace",fontWeight:T.weight.light}}>{v}</span>
+                  <span style={{color:T.mut2,fontSize:T.size.tiny}}>· {weight}</span>
+                </div>
+                <div style={{height:3,background:T.mut2,marginTop:T.s[1]}}>
+                  <div style={{height:3,background:v>=70?T.gr:v>=40?T.amb:T.rd,width:`${v}%`}}/>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* §02 NET P&L */}
+        <Sec n="02" title={`net p&l · ${analyticsView}`}/>
+        <div style={{marginBottom:T.s[8]}}>
+          <div style={sty.heroNum(aPnl>=0?T.gr:T.rd, isMob?T.size.h1:T.size.hero)}>{fmt(aPnl)}</div>
+          <div style={{color:T.mut,fontSize:T.size.body,marginTop:T.s[3]}}>
+            {aData.length} trades · win {(score.parts.winRate>=0?aData.filter(t=>parseFloat(t.pnl)>0).length:0)} · loss {aData.filter(t=>parseFloat(t.pnl)<=0).length} · pf <span style={{color:T.amb}}>{score.pf.toFixed(2)}</span>
+          </div>
+        </div>
+
+        {/* §03 PERFORMANCE CALENDAR */}
+        <Sec n="03" title="performance calendar" right="last ~60 days"/>
+        <div style={{marginBottom:T.s[8]}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr)",gap:3,maxWidth:isMob?"100%":420}}>
+            {["S","M","T","W","T","F","S"].map((d,i) => <div key={i} style={{textAlign:"center",fontSize:T.size.tiny,color:T.mut,padding:T.s[1]}}>{d}</div>)}
+            {cal.length > 0 && Array(cal[0].dayOfWeek).fill(null).map((_,i) => <div key={"empty-"+i}/>)}
+            {cal.map(d => {
+              const intensity = d.pnl===0 ? 0 : Math.min(1, Math.abs(d.pnl)/5000);
+              const color = d.pnl > 0
+                ? `rgba(107,158,107,${0.3+intensity*0.7})`
+                : d.pnl < 0
+                  ? `rgba(168,90,82,${0.3+intensity*0.7})`
+                  : "transparent";
+              return (
+                <div key={d.date} title={`${d.date} · ${d.pnl?fmt(d.pnl):"no trades"}`}
+                  style={{aspectRatio:"1",background:color,border:T.rule1,fontSize:T.size.tiny,display:"flex",alignItems:"center",justifyContent:"center",color:d.pnl?T.text:T.mut2,fontFamily:"\'JetBrains Mono\', monospace"}}>
+                  {d.day}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:T.s[3],marginTop:T.s[3],fontSize:T.size.tiny,color:T.mut}}>
+            <span>loss</span>
+            <div style={{display:"flex",gap:2}}>
+              {[0.3,0.5,0.7,0.9].map(o => <div key={o} style={{width:12,height:12,background:`rgba(168,90,82,${o})`}}/>)}
+            </div>
+            <span>·</span>
+            <div style={{display:"flex",gap:2}}>
+              {[0.3,0.5,0.7,0.9].map(o => <div key={o} style={{width:12,height:12,background:`rgba(107,158,107,${o})`}}/>)}
+            </div>
+            <span>win</span>
+          </div>
+        </div>
+
+        {/* §04 EQUITY CURVE */}
+        <Sec n="04" title="equity curve"/>
+        {(() => {
+          let c=0; const data = [...aData].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{c+=parseFloat(t.pnl||0); return {date:t.date.slice(5), v:Math.round(c)};});
+          return data.length>1 ? (
+            <div style={{marginBottom:T.s[8]}}>
+              <ResponsiveContainer width="100%" height={isMob?180:240}>
+                <LineChart data={data} margin={{top:8,right:0,bottom:0,left:0}}>
+                  <XAxis dataKey="date" stroke={T.mut2} tick={{fill:T.mut,fontSize:10}} interval="preserveStartEnd"/>
+                  <YAxis stroke={T.mut2} tick={{fill:T.mut,fontSize:10}} tickFormatter={fmt} width={70}/>
+                  <Tooltip contentStyle={{background:T.card,border:T.rule1,fontFamily:"\'JetBrains Mono\', monospace"}} labelStyle={{color:T.text}} itemStyle={{color:T.text}} formatter={v=>[fmt(v),"cumulative"]}/>
+                  <Line type="monotone" dataKey="v" stroke={aPnl>=0?T.gr:T.rd} strokeWidth={1.5} dot={false}/>
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>not enough data</div>;
+        })()}
+
+        {/* §05 DRAWDOWN */}
+        <Sec n="05" title="drawdown"/>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",gap:0,borderTop:T.rule1,borderBottom:T.rule1,marginBottom:T.s[8]}}>
+          {[
+            {l:"max drawdown",   v:fmt(dd.maxDD), c:T.rd},
+            {l:"current",        v:fmt(dd.current), c:dd.current<0?T.rd:T.gr},
+            {l:"longest losing streak", v:`${dd.longestLossStreak} trades`, c:T.amb},
+            {l:"fastest recovery", v:dd.recoveryDays!==null?`${dd.recoveryDays} days`:"—", c:T.text},
+          ].map(({l,v,c},i) => (
+            <div key={l} style={{padding:`${T.s[4]}px ${T.s[5]}px`,borderLeft:i>0&&!isMob?T.rule1:"none",borderLeft:isMob?(i%2!==0?T.rule1:"none"):(i>0?T.rule1:"none"),borderTop:isMob&&i>=2?T.rule1:"none"}}>
+              <div style={sty.label}>{l}</div>
+              <div style={{color:c,fontSize:T.size.h3,fontFamily:"\'JetBrains Mono\', monospace",fontWeight:T.weight.light,marginTop:T.s[2]}}>{v}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* §06 DAY OF WEEK */}
+        <Sec n="06" title="performance by day"/>
+        {dow.length ? (
+          <div style={{marginBottom:T.s[8]}}>
+            <ResponsiveContainer width="100%" height={isMob?180:200}>
+              <BarChart data={dow} margin={{top:8,right:0,bottom:0,left:0}}>
+                <XAxis dataKey="day" stroke={T.mut2} tick={{fill:T.mut,fontSize:10}}/>
+                <YAxis stroke={T.mut2} tick={{fill:T.mut,fontSize:10}} tickFormatter={fmt} width={70}/>
+                <Tooltip contentStyle={{background:T.card,border:T.rule1}} labelStyle={{color:T.text}} itemStyle={{color:T.text}} formatter={(v,_,p)=>[`${fmt(v)} · ${p.payload.n} trades · ${p.payload.wr}% wr`,"p&l"]}/>
+                <Bar dataKey="pnl">{dow.map((d,i)=><Cell key={i} fill={d.pnl>=0?T.gr:T.rd}/>)}</Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>no data</div>}
+
+        {/* §07 HOUR OF DAY (intraday) */}
+        {hod.length > 0 && (
+          <>
+            <Sec n="07" title="performance by hour" right="intraday only"/>
+            <div style={{marginBottom:T.s[8]}}>
+              <ResponsiveContainer width="100%" height={isMob?180:200}>
+                <BarChart data={hod} margin={{top:8,right:0,bottom:0,left:0}}>
+                  <XAxis dataKey="label" stroke={T.mut2} tick={{fill:T.mut,fontSize:10}}/>
+                  <YAxis stroke={T.mut2} tick={{fill:T.mut,fontSize:10}} tickFormatter={fmt} width={70}/>
+                  <Tooltip contentStyle={{background:T.card,border:T.rule1}} labelStyle={{color:T.text}} itemStyle={{color:T.text}} formatter={(v,_,p)=>[`${fmt(v)} · ${p.payload.n} trades`,"p&l"]}/>
+                  <Bar dataKey="pnl">{hod.map((d,i)=><Cell key={i} fill={d.pnl>=0?T.gr:T.rd}/>)}</Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        )}
+
+        {/* §08 BEST / WORST SETUPS */}
+        <Sec n="08" title="setup performance" right="ranked by expectancy"/>
+        {setups2.length ? (
+          <div style={{borderTop:T.rule1,borderBottom:T.rule1,marginBottom:T.s[8]}}>
+            <div style={{display:"grid",gridTemplateColumns:isMob?"2fr 1fr 1fr 1fr":"2.5fr 1fr 1fr 1fr 1fr",padding:`${T.s[3]}px ${T.s[3]}px`,borderBottom:T.rule1,...sty.label}}>
+              <span>setup</span><span>trades</span><span>win rate</span>{!isMob && <span>total p&l</span>}<span style={{textAlign:"right"}}>expectancy</span>
+            </div>
+            {setups2.map(d => (
+              <div key={d.setup} style={{display:"grid",gridTemplateColumns:isMob?"2fr 1fr 1fr 1fr":"2.5fr 1fr 1fr 1fr 1fr",padding:`${T.s[3]}px ${T.s[3]}px`,borderBottom:T.rule1,fontSize:T.size.small,alignItems:"center"}}>
+                <span style={{color:T.text}}>{d.setup}</span>
+                <span style={{color:T.mut}}>{d.n}</span>
+                <span style={{color:d.winRate>=50?T.gr:T.rd}}>{d.winRate.toFixed(0)}%</span>
+                {!isMob && <span style={{color:d.pnl>=0?T.gr:T.rd,fontFamily:"\'JetBrains Mono\', monospace"}}>{fmt(d.pnl)}</span>}
+                <span style={{color:d.ev>=0?T.gr:T.rd,fontFamily:"\'JetBrains Mono\', monospace",textAlign:"right"}}>{fmt(d.ev)}</span>
+              </div>
+            ))}
+          </div>
+        ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>not enough data</div>}
+
+        {/* §09 WIN vs LOSS COMPARISON */}
+        <Sec n="09" title="win vs loss comparison"/>
+        <div style={{borderTop:T.rule1,borderBottom:T.rule1,marginBottom:T.s[8]}}>
+          {[
+            {l:"trades", w:wl.wins.n, x:wl.losses.n},
+            {l:"avg p&l", w:fmt(wl.wins.avgPnl), x:fmt(wl.losses.avgPnl)},
+            {l:"avg r:r", w:wl.wins.avgRR.toFixed(2), x:wl.losses.avgRR.toFixed(2)},
+            {l:"avg size", w:wl.wins.avgSize, x:wl.losses.avgSize},
+            {l:"avg charges", w:fmt(wl.wins.avgCharges), x:fmt(wl.losses.avgCharges)},
+          ].map(({l,w,x},i) => (
+            <div key={l} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",padding:`${T.s[3]}px ${T.s[3]}px`,borderBottom:i<4?T.rule1:"none",fontSize:T.size.small,alignItems:"center"}}>
+              <span style={sty.label}>{l}</span>
+              <span style={{color:T.gr,fontFamily:"\'JetBrains Mono\', monospace",textAlign:"center"}}>{w}</span>
+              <span style={{color:T.rd,fontFamily:"\'JetBrains Mono\', monospace",textAlign:"right"}}>{x}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* §10 MOST USED TAGS */}
+        <Sec n="10" title="most used tags" right="top 12"/>
+        {tags.length ? (
+          <div style={{borderTop:T.rule1,borderBottom:T.rule1,padding:`${T.s[4]}px 0`,marginBottom:T.s[8]}}>
+            {tags.map(({tag,n}) => {
+              const max = tags[0].n;
+              const pct = (n/max)*100;
+              return (
+                <div key={tag} style={{display:"grid",gridTemplateColumns:"160px 1fr 50px",alignItems:"center",gap:T.s[3],padding:`${T.s[2]}px 0`}}>
+                  <span style={{color:T.text,fontSize:T.size.small,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tag}</span>
+                  <div style={{height:6,background:T.mut2,position:"relative"}}>
+                    <div style={{height:6,background:T.amb,width:`${pct}%`}}/>
+                  </div>
+                  <span style={{color:T.mut,fontSize:T.size.small,textAlign:"right",fontFamily:"\'JetBrains Mono\', monospace"}}>{n}</span>
+                </div>
+              );
+            })}
+          </div>
+        ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>no tags yet</div>}
+
+        {/* §11 CONSISTENCY HEATMAP */}
+        <Sec n="11" title="consistency heatmap" right="rule adherence per day"/>
+        {(() => {
+          const byDate = {};
+          aData.forEach(t => {
+            if (!byDate[t.date]) byDate[t.date] = { yes:0, total:0 };
+            byDate[t.date].total++;
+            if (t.followedRules==="Yes") byDate[t.date].yes++;
+          });
+          const days = Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0]));
+          if (!days.length) return <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>no data</div>;
+          return (
+            <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:T.s[8],maxWidth:isMob?"100%":600}}>
+              {days.map(([date,d]) => {
+                const rate = d.yes/d.total;
+                const color = rate >= 0.8 ? T.gr : rate >= 0.5 ? T.amb : T.rd;
+                return (
+                  <div key={date} title={`${date} · ${d.yes}/${d.total} rules followed`}
+                    style={{width:14,height:14,background:color,opacity:0.3+rate*0.7,border:`1px solid ${T.bg}`}}/>
+                );
+              })}
+            </div>
+          );
+        })()}
+
       </div>
+    );
+  };
 
-      {/* hero */}
-      <div style={{marginBottom:T.s[8]}}>
-        <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em",marginBottom:T.s[3]}}>net p&l · {analyticsView}</div>
-        <div style={sty.heroNum(aPnl>=0?T.gr:T.rd, isMob?T.size.h1:T.size.hero)}>{fmt(aPnl)}</div>
-        <div style={{color:T.mut,fontSize:T.size.body,marginTop:T.s[3]}}>{aData.length} trades · win rate <span style={{color:T.text}}>{aWR}%</span> · gross {fmt(aData.reduce((s,t)=>s+parseFloat(t.grossPnl||t.pnl||0),0))} · charges <span style={{color:T.rd}}>-{fmt(aData.reduce((s,t)=>s+parseFloat(t.totalCharges||0),0))}</span></div>
-      </div>
-
-      {/* equity curve */}
-      <Sec n="01" title="equity curve"/>
-      {(() => {
-        let c=0; const data = [...aData].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{c+=parseFloat(t.pnl||0); return {date:t.date.slice(5), v:Math.round(c)};});
-        return data.length>1 ? (
-          <ResponsiveContainer width="100%" height={isMob?180:260}>
-            <LineChart data={data} margin={{top:8,right:0,bottom:0,left:0}}>
-              <XAxis dataKey="date" stroke={T.mut2} tick={{fill:T.mut,fontSize:10}} interval="preserveStartEnd"/>
-              <YAxis stroke={T.mut2} tick={{fill:T.mut,fontSize:10}} tickFormatter={fmt} width={70}/>
-              <Tooltip contentStyle={{background:T.card,border:T.rule1,fontFamily:"'JetBrains Mono', monospace"}} labelStyle={{color:T.text}} itemStyle={{color:T.text}} formatter={v=>[fmt(v),"cumulative"]}/>
-              <Line type="monotone" dataKey="v" stroke={aPnl>=0?T.gr:T.rd} strokeWidth={1.5} dot={false}/>
-            </LineChart>
-          </ResponsiveContainer>
-        ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`}}>no data</div>;
-      })()}
-
-      {/* by instrument */}
-      <Sec n="02" title="by instrument"/>
-      {byInst(aData).length ? (
-        <ResponsiveContainer width="100%" height={isMob?180:220}>
-          <BarChart data={byInst(aData)} margin={{top:8,right:0,bottom:0,left:0}}>
-            <XAxis dataKey="name" stroke={T.mut2} tick={{fill:T.mut,fontSize:9}}/>
-            <YAxis stroke={T.mut2} tick={{fill:T.mut,fontSize:9}} tickFormatter={fmt} width={70}/>
-            <Tooltip contentStyle={{background:T.card,border:T.rule1,fontFamily:"'JetBrains Mono', monospace"}} labelStyle={{color:T.text}} itemStyle={{color:T.text}} formatter={v=>[fmt(v),"p&l"]}/>
-            <Bar dataKey="v">{byInst(aData).map((d,i)=><Cell key={i} fill={d.v>=0?T.gr:T.rd}/>)}</Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`}}>no data</div>}
-
-      {/* best/worst setups */}
-      <Sec n="03" title="best & worst setups"/>
-      {bySetup(aData).length ? (
-        <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",margin:isMob?`0 -${T.s[3]}px`:undefined,padding:isMob?`0 ${T.s[3]}px`:undefined}}><table style={{minWidth:isMob?540:"auto",width:"100%",borderCollapse:"collapse",fontSize:T.size.small}}>
-          <thead><tr style={{color:T.mut,borderBottom:T.rule1}}>
-            {["setup","trades","p&l"].map(h => <th key={h} style={{padding:`${T.s[2]}px ${T.s[3]}px`,textAlign:"left",fontWeight:T.weight.regular,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".14em"}}>{h}</th>)}
-          </tr></thead>
-          <tbody>{bySetup(aData).map(d => (
-            <tr key={d.s} style={{borderBottom:T.rule1}}>
-              <td style={{padding:`${T.s[3]}px ${T.s[3]}px`,color:T.text}}>{d.s}</td>
-              <td style={{padding:`${T.s[3]}px ${T.s[3]}px`,color:T.mut}}>{d.n}</td>
-              <td style={{padding:`${T.s[3]}px ${T.s[3]}px`,color:d.v>=0?T.gr:T.rd,fontFamily:"'JetBrains Mono', monospace"}}>{fmt(d.v)}</td>
-            </tr>
-          ))}</tbody>
-        </table></div>
-      ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`}}>no data</div>}
-    </div>
-  );
-
-  /* ── SETTINGS DRAWER ── */
   const renderDrawer = () => (
     <div style={{position:"fixed", top:0, right:0, bottom:0, width:isMob?"100%":480, background:T.bg, borderLeft:T.rule1, zIndex:1000, overflow:"auto", padding:`${T.s[6]}px ${T.s[6]}px ${T.s[10]}px`, boxShadow:"-20px 0 40px rgba(0,0,0,0.4)"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:T.s[8]}}>
