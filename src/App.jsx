@@ -32,6 +32,8 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
+const BUILD = "v.2026.06.02.1257";  // updated to force-refresh deploys
+
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
 ════════════════════════════════════════════════════════════ */
@@ -1869,6 +1871,7 @@ export default function App() {
           <div>cap &nbsp;&nbsp;<span style={{color:T.text}}>{fmt(settings.capital)}</span></div>
           <div>today<span style={{color:todayPnl>=0?T.gr:T.rd}}>&nbsp;{fmt(todayPnl)}</span></div>
         </div>
+        <div style={{fontSize:T.size.tiny,color:T.mut2,marginTop:T.s[3],letterSpacing:".1em"}}>build {BUILD}</div>
       </div>
     </aside>
   );
@@ -1937,6 +1940,7 @@ export default function App() {
               ))}
               <div style={{padding:`${T.s[4]}px 0 ${T.s[2]}px`,fontSize:T.size.small,color:T.mut}}>
                 acct <span style={{color:T.text}}>{activeUser}</span> · today <span style={{color:todayPnl>=0?T.gr:T.rd}}>{fmt(todayPnl)}</span>
+                <div style={{fontSize:T.size.tiny,color:T.mut2,marginTop:T.s[2],letterSpacing:".1em"}}>build {BUILD}</div>
               </div>
               <button onClick={()=>{switchUser(); setMobileMenu(false);}}
                 style={{...sty.btn(),width:"100%",marginTop:T.s[3]}}>
