@@ -192,6 +192,7 @@ const calcCharges = (buyVal, sellVal, segment) => {
 };
 
 const applyCharges = (trade) => {
+  // Single-leg shortcut (for fresh journal entries)
   const entry = parseFloat(trade.entry), exit = parseFloat(trade.exitPrice), size = parseFloat(trade.size);
   if (!entry||!exit||!size) return trade;
   const buyVal  = trade.direction==="Long" ? entry*size : exit*size;
@@ -208,15 +209,149 @@ const applyCharges = (trade) => {
   };
 };
 
+// ── Multi-leg recalculation ─────────────────────────────────
+// entries[]: [{id, price, size, time}], exits[]: same shape
+// Computes weighted averages, P&L, charges, status
+const recalcLegs = (trade) => {
+  // Migrate single-leg legacy trades
+  let entries = trade.entries || [];
+  let exits   = trade.exits   || [];
+  if (!entries.length && trade.entry && trade.size) {
+    entries = [{ id:1, price:String(trade.entry), size:String(trade.size), time:trade.time||"" }];
+  }
+  if (!exits.length && trade.exitPrice && trade.size) {
+    exits = [{ id:1, price:String(trade.exitPrice), size:String(trade.size), time:trade.time||"" }];
+  }
+
+  const sumSize = (arr) => arr.reduce((s,l)=>s+(parseFloat(l.size)||0), 0);
+  const sumVal  = (arr) => arr.reduce((s,l)=>s+((parseFloat(l.price)||0)*(parseFloat(l.size)||0)), 0);
+
+  const totEntrySize = sumSize(entries);
+  const totExitSize  = sumSize(exits);
+  const totEntryVal  = sumVal(entries);
+  const totExitVal   = sumVal(exits);
+
+  const avgEntry = totEntrySize ? totEntryVal/totEntrySize : 0;
+  const avgExit  = totExitSize  ? totExitVal/totExitSize  : 0;
+
+  const status = totExitSize === 0 ? "open"
+              : totExitSize >= totEntrySize ? "closed" : "partial";
+
+  // P&L: realized portion only (matched size)
+  const matched = Math.min(totEntrySize, totExitSize);
+  let gross = 0;
+  if (matched > 0) {
+    if (trade.direction === "Long") gross = (avgExit - avgEntry) * matched;
+    else                            gross = (avgEntry - avgExit) * matched;
+  }
+
+  // Charges based on total turnover of matched portion
+  let chargesObj = null;
+  if (matched > 0) {
+    const matchedEntryVal = avgEntry * matched;
+    const matchedExitVal  = avgExit * matched;
+    const buyVal  = trade.direction==="Long" ? matchedEntryVal : matchedExitVal;
+    const sellVal = trade.direction==="Long" ? matchedExitVal  : matchedEntryVal;
+    const seg = trade.segment || detectSegment(trade.instrument, trade.setup);
+    chargesObj = calcCharges(buyVal, sellVal, seg);
+  }
+
+  return {
+    ...trade,
+    entries, exits,
+    entry:      avgEntry ? String(+avgEntry.toFixed(4)) : trade.entry || "",
+    exitPrice:  avgExit  ? String(+avgExit.toFixed(4))  : "",
+    size:       String(totEntrySize),
+    exitedSize: String(totExitSize),
+    status,
+    grossPnl:   gross ? String(+gross.toFixed(2)) : "",
+    pnl:        chargesObj ? String(+(gross - chargesObj.totalCharges).toFixed(2)) : (gross ? String(+gross.toFixed(2)) : ""),
+    brokerage:  chargesObj ? String(chargesObj.brokerage)  : "",
+    stt:        chargesObj ? String(chargesObj.stt)        : "",
+    txnCharges: chargesObj ? String(chargesObj.txnCharges) : "",
+    sebi:       chargesObj ? String(chargesObj.sebi)       : "",
+    gst:        chargesObj ? String(chargesObj.gst)        : "",
+    stamp:      chargesObj ? String(chargesObj.stamp)      : "",
+    totalCharges: chargesObj ? String(chargesObj.totalCharges) : "",
+  };
+};
+
 /* ════════════════════════════════════════════════════════════
    EMPTY OBJECTS
 ════════════════════════════════════════════════════════════ */
 const emptyTrade = (instr, setup, emo) => ({
   date:today(), time:nowT(), instrument:instr||"", segment:detectSegment(instr||"",setup||""),
   direction:"Long", tradeType:"Intraday", setup:setup||"", entry:"", sl:"", exitPrice:"", size:"",
+  entries:[], exits:[],   // pyramiding + partial exits
+  status:"open",
   riskAmount:"", grossPnl:"", pnl:"", brokerage:"", stt:"", txnCharges:"", sebi:"", gst:"", stamp:"", totalCharges:"",
   rrAchieved:"", grade:"A", followedRules:"Yes", emotion:emo||"Calm", mistakes:"", improvements:"", notes:"",
 });
+
+// ── Legs helpers ─────────────────────────────────────────────
+const tradeLegs = (t) => {
+  // Returns {entries, exits} arrays. Backwards-compatible: if no entries[]
+  // but legacy entry field exists, materialize a single leg.
+  let entries = t.entries && t.entries.length ? t.entries : [];
+  let exits   = t.exits   && t.exits.length   ? t.exits   : [];
+  if (!entries.length && t.entry && t.size) {
+    entries = [{ price: String(t.entry), size: String(t.size), time: t.time||"", note: "" }];
+  }
+  if (!exits.length && t.exitPrice) {
+    exits = [{ price: String(t.exitPrice), size: String(t.size||0), time: "", note: "" }];
+  }
+  return { entries, exits };
+};
+const sumSize    = (legs) => legs.reduce((s,l)=>s+(parseFloat(l.size)||0), 0);
+const sumValue   = (legs) => legs.reduce((s,l)=>s+(parseFloat(l.size)||0)*(parseFloat(l.price)||0), 0);
+const avgPrice   = (legs) => { const sz = sumSize(legs); return sz ? sumValue(legs)/sz : 0; };
+
+// Recompute P&L, charges, summary fields from legs[]
+const recomputeFromLegs = (t) => {
+  const { entries, exits } = tradeLegs(t);
+  const totalEntrySize = sumSize(entries);
+  const totalExitSize  = sumSize(exits);
+  const avgEntry = avgPrice(entries);
+  const avgExit  = avgPrice(exits);
+  const dirSign  = t.direction === "Long" ? 1 : -1;
+
+  // P&L on the closed portion only
+  const closedSize = Math.min(totalEntrySize, totalExitSize);
+  const grossPnl   = closedSize > 0 ? dirSign * (avgExit - avgEntry) * closedSize : 0;
+
+  // Status
+  const status = totalExitSize === 0 ? "open"
+               : totalExitSize >= totalEntrySize ? "closed"
+               : "partial";
+
+  // Charges (only on the closed portion)
+  let charges = null;
+  if (closedSize > 0) {
+    const buyVal  = t.direction === "Long" ? avgEntry*closedSize : avgExit*closedSize;
+    const sellVal = t.direction === "Long" ? avgExit*closedSize  : avgEntry*closedSize;
+    const seg = t.segment || detectSegment(t.instrument, t.setup);
+    charges = calcCharges(buyVal, sellVal, seg);
+  }
+  const totalCharges = charges?.totalCharges || 0;
+
+  return {
+    ...t,
+    entries, exits,
+    entry:      avgEntry > 0 ? String(+avgEntry.toFixed(4)) : t.entry,
+    exitPrice:  avgExit  > 0 ? String(+avgExit.toFixed(4))  : (status==="open" ? "" : t.exitPrice),
+    size:       String(totalEntrySize),
+    status,
+    grossPnl:   status==="open" ? "" : String(+grossPnl.toFixed(2)),
+    pnl:        status==="open" ? "" : String(+(grossPnl - totalCharges).toFixed(2)),
+    brokerage:    charges ? String(charges.brokerage)    : "",
+    stt:          charges ? String(charges.stt)          : "",
+    txnCharges:   charges ? String(charges.txnCharges)   : "",
+    sebi:         charges ? String(charges.sebi)         : "",
+    gst:          charges ? String(charges.gst)          : "",
+    stamp:        charges ? String(charges.stamp)        : "",
+    totalCharges: charges ? String(charges.totalCharges) : "",
+  };
+};
 const emptyReview = (period) => ({
   date:today(), period, mentalState:"Good", whatWentWell:"", mistakes:"", missedSetups:"",
   rulesFollowed:"", emotionalTrading:"", regrets:"", improvements:"", selfCoaching:"",
@@ -288,6 +423,8 @@ export default function App() {
   const [rf, setRf] = useState(emptyReview("daily"));
   const [planF, setPlanF] = useState(emptyPlan(DEF_INSTRUMENTS[0]));
   const [editingPlanId, setEditingPlanId] = useState(null);
+  const [editingTradeId, setEditingTradeId] = useState(null);
+  const [legInput, setLegInput] = useState({}); // { [tradeId]: { type:"entry"|"exit", price, size } }
   const [reflectionDraft, setReflectionDraft] = useState({});
   const [reviewTab, setReviewTab] = useState("daily");
   const [analyticsView, setAnalyticsView] = useState("combined");
@@ -387,7 +524,33 @@ export default function App() {
 
   // ── log trade ────────────────────────────────────────────
   const logTrade = () => {
-    if (!tf.entry || !tf.sl) return alert("Entry and SL required");
+    if (!tf.entry || !tf.sl) return alert("Entry and SL are required.");
+
+    const isClosed = !!tf.exitPrice;
+
+    if (editingTradeId) {
+      // ── UPDATE EXISTING TRADE — preserve legs ──
+      const existing = trades.find(t => t.id === editingTradeId);
+      // Rebuild legs from new form values, but only the FIRST leg of each (preserves later pyramids)
+      const newEntries = (existing.entries && existing.entries.length > 1)
+        ? [{...(existing.entries[0]||{}), price:String(tf.entry), size:String(tf.size)}, ...existing.entries.slice(1)]
+        : [{ id:1, price:String(tf.entry), size:String(tf.size), time:tf.time }];
+      const newExits = isClosed
+        ? ((existing.exits && existing.exits.length > 1)
+          ? [{...(existing.exits[0]||{}), price:String(tf.exitPrice), size:String(tf.size)}, ...existing.exits.slice(1)]
+          : [{ id:1, price:String(tf.exitPrice), size:String(tf.size), time:tf.time }])
+        : (existing.exits || []);
+      const merged = recalcLegs({
+        ...existing, ...tf, id: editingTradeId,
+        entries: newEntries, exits: newExits,
+      });
+      pTrades(trades.map(t => t.id === editingTradeId ? merged : t));
+      setEditingTradeId(null);
+      setTf(emptyTrade(instruments[0], setups[0], emotions[0]));
+      return;
+    }
+
+    // ── NEW TRADE ──
     // Capture checklist snapshot at moment of trade
     const checklistSnapshot = Object.entries(checks).flatMap(([section, items], si) =>
       items.map((item, i) => {
@@ -397,19 +560,23 @@ export default function App() {
     );
     const checkedYes = checklistSnapshot.filter(c=>c.state==="yes").length;
     const checkedNo  = checklistSnapshot.filter(c=>c.state==="no").length;
-    // Find matching open plan and auto-link
     const matchPlan = plans.find(p => p.status === "open" && p.instrument === tf.instrument);
     const tradeId = Date.now();
-    const final = applyCharges({
-      ...tf,
-      id: tradeId,
+    // Materialize initial legs from the simple form fields
+    const initialEntries = tf.entry ? [{ price: tf.entry, size: tf.size||"0", time: tf.time||nowT(), note: "" }] : [];
+    const initialExits   = isClosed ? [{ price: tf.exitPrice, size: tf.size||"0", time: nowT(), note: "" }] : [];
+    const base = {
+      ...tf, id: tradeId, status,
+      entries: initialEntries,
+      exits: initialExits,
       checklist: checklistSnapshot,
       checklistYes: checkedYes,
       checklistNo:  checkedNo,
       checklistTotal: checklistSnapshot.length,
       postReflection: tf.postReflection || "",
       planId: matchPlan?.id || null,
-    });
+    };
+    const final = recomputeFromLegs(base);
     pTrades([final, ...trades]);
     if (matchPlan) {
       pPlans(plans.map(p => p.id === matchPlan.id
@@ -418,8 +585,58 @@ export default function App() {
     }
     setTf(emptyTrade(instruments[0], setups[0], emotions[0]));
   };
+
   const updateTrade = (id, patch) => {
     pTrades(trades.map(t => t.id === id ? {...t, ...patch} : t));
+  };
+
+  // ── Multi-leg helpers (pyramiding + partial exits) ──
+  const addEntryLeg = (tradeId, leg) => {
+    const t = trades.find(x => x.id === tradeId);
+    if (!t) return;
+    const { entries } = tradeLegs(t);
+    const updated = recomputeFromLegs({...t, entries: [...entries, leg]});
+    pTrades(trades.map(x => x.id === tradeId ? updated : x));
+  };
+  const addExitLeg = (tradeId, leg) => {
+    const t = trades.find(x => x.id === tradeId);
+    if (!t) return;
+    const { exits } = tradeLegs(t);
+    const updated = recomputeFromLegs({...t, exits: [...exits, leg]});
+    pTrades(trades.map(x => x.id === tradeId ? updated : x));
+  };
+  const removeLeg = (tradeId, side, idx) => {
+    const t = trades.find(x => x.id === tradeId);
+    if (!t) return;
+    const { entries, exits } = tradeLegs(t);
+    const newE = side === "entry" ? entries.filter((_,i)=>i!==idx) : entries;
+    const newX = side === "exit"  ? exits.filter((_,i)=>i!==idx)   : exits;
+    const updated = recomputeFromLegs({...t, entries: newE, exits: newX});
+    pTrades(trades.map(x => x.id === tradeId ? updated : x));
+  };
+
+  const startEditingTrade = (t) => {
+    setEditingTradeId(t.id);
+    setTf({...t});  // pre-fill form with this trade
+    setTab("journal");
+    setDrawer(null);
+    if (typeof window !== "undefined") window.scrollTo(0, 0);
+  };
+
+  const cancelEdit = () => {
+    setEditingTradeId(null);
+    setTf(emptyTrade(instruments[0], setups[0], emotions[0]));
+  };
+
+  const closeOpenTrade = (id, exitPrice, exitSize) => {
+    const t = trades.find(x => x.id === id);
+    if (!t) return;
+    const { entries, exits } = tradeLegs(t);
+    const remaining = sumSize(entries) - sumSize(exits);
+    const closeSize = exitSize ? parseFloat(exitSize) : remaining;
+    const newLeg = { price: String(exitPrice), size: String(closeSize), time: nowT(), note: "" };
+    const updated = recomputeFromLegs({...t, exits: [...exits, newLeg]});
+    pTrades(trades.map(x => x.id === id ? updated : x));
   };
 
   // Plan CRUD
@@ -519,7 +736,7 @@ export default function App() {
   /* ────────────────────────────────────────────────────────
      DERIVED DATA
   ──────────────────────────────────────────────────────── */
-  const closed = trades.filter(t=>t.pnl!=="");
+  const closed = trades.filter(t => t.status !== "open" && t.pnl !== "" && t.pnl !== undefined);
   const todayPnl = closed.filter(t=>t.date===today()).reduce((s,t)=>s+parseFloat(t.pnl),0);
   const weekPnl = (()=>{ const ws=new Date(); ws.setDate(ws.getDate()-ws.getDay()); return closed.filter(t=>new Date(t.date)>=ws).reduce((s,t)=>s+parseFloat(t.pnl),0); })();
   const monthPnl = (()=>{ const m=new Date(); m.setDate(1); return closed.filter(t=>new Date(t.date)>=m).reduce((s,t)=>s+parseFloat(t.pnl),0); })();
@@ -642,8 +859,33 @@ export default function App() {
         </div>
       ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>no closed trades yet — start logging to see your curve.</div>}
 
+      {/* Open positions */}
+      {(() => {
+        const open = trades.filter(t => t.status === "open");
+        if (!open.length) return null;
+        return (
+          <>
+            <Sec n="02" title={`open positions · ${open.length}`} right="awaiting exit"/>
+            <div style={{borderTop:T.rule1,borderBottom:T.rule1,marginBottom:T.s[8]}}>
+              {open.map(t => (
+                <div key={t.id} onClick={()=>{setTab("trades"); setExpanded(t.id);}}
+                  style={{padding:`${T.s[3]}px 0`,borderBottom:T.rule1,cursor:"pointer",
+                          display:"grid",gridTemplateColumns:isMob?"1fr 1fr auto":"100px 160px 100px 100px 100px auto",gap:T.s[3],alignItems:"center"}}>
+                  <span style={{color:T.mut,fontSize:T.size.small}}>{t.date}</span>
+                  <span style={{color:T.text,fontSize:T.size.body}}>{t.instrument}</span>
+                  {!isMob && <span style={{color:t.direction==="Long"?T.gr:T.rd,fontSize:T.size.small}}>{t.direction?.toLowerCase()}</span>}
+                  {!isMob && <span style={{color:T.mut,fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.small}}>entry {t.entry}</span>}
+                  {!isMob && <span style={{color:T.rd,fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.small}}>sl {t.sl}</span>}
+                  <span style={{color:T.amb,fontSize:T.size.small,textAlign:"right",textTransform:"uppercase",letterSpacing:".14em"}}>open ▸</span>
+                </div>
+              ))}
+            </div>
+          </>
+        );
+      })()}
+
       {/* loss limits */}
-      <Sec n="02" title="loss limits"/>
+      <Sec n="03" title="loss limits"/>
       {[
         { label:"daily",   used:Math.max(0,-todayPnl), limit:settings.dailyLimit  },
         { label:"weekly",  used:Math.max(0,-weekPnl),  limit:settings.weeklyLimit },
@@ -662,7 +904,7 @@ export default function App() {
       })}
 
       {/* recent trades */}
-      <Sec n="03" title="recent" right={`${trades.length} total`}/>
+      <Sec n="04" title="recent" right={`${trades.length} total`}/>
       {!closed.length ? (
         <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`}}>no trades yet. go to journal to log one.</div>
       ) : (
@@ -705,7 +947,17 @@ export default function App() {
 
     return (
     <div style={{maxWidth:560, margin:"0 auto"}}>
-      <Sec n="01" title="new entry"/>
+      {editingTradeId ? (
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:`${T.s[4]}px ${T.s[4]}px`,marginBottom:T.s[5],border:`1px solid ${T.amb}`,background:T.amb+"11"}}>
+          <div>
+            <div style={{...sty.label,color:T.amb,marginBottom:T.s[1]}}>editing trade</div>
+            <div style={{color:T.text,fontSize:T.size.body}}>{tf.instrument} · {tf.date}</div>
+          </div>
+          <button onClick={cancelEdit} style={{...sty.btn(),color:T.mut}}>cancel edit</button>
+        </div>
+      ) : (
+        <Sec n="01" title="new entry"/>
+      )}
 
       {/* Pre-trade status banner: checklist + plan */}
       <div style={{display:"grid",gridTemplateColumns:matchingPlan?"1fr 1fr":"1fr",gap:T.s[3],marginBottom:T.s[6]}}>
@@ -778,7 +1030,7 @@ export default function App() {
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
         <Field label="entry"><input type="number" style={sty.input} value={tf.entry} onChange={e=>updateTf({entry:e.target.value})}/></Field>
         <Field label="stop loss"><input type="number" style={sty.input} value={tf.sl} onChange={e=>setTf({...tf,sl:e.target.value})}/></Field>
-        <Field label="exit"><input type="number" style={sty.input} value={tf.exitPrice} onChange={e=>updateTf({exitPrice:e.target.value})}/></Field>
+        <Field label="exit (optional)"><input type="number" style={sty.input} value={tf.exitPrice} onChange={e=>updateTf({exitPrice:e.target.value})} placeholder="leave blank for open"/></Field>
       </div>
 
       {/* size */}
@@ -834,7 +1086,25 @@ export default function App() {
         <Field label="notes (optional)"><textarea style={sty.textarea} value={tf.notes} onChange={e=>setTf({...tf,notes:e.target.value})} placeholder="setup context, mistakes, what to remember..."/></Field>
       </div>
 
-      <button onClick={logTrade} style={{...sty.btn("primary"), width:"100%", padding:`${T.s[4]}px`, fontSize:T.size.body}}>log trade →</button>
+      {/* Spacer to ensure scroll doesn't hide content behind sticky button on mobile */}
+      <div style={{height: isMob ? 80 : 0}}/>
+
+      {/* Sticky CTA on mobile, normal on desktop */}
+      <div style={isMob ? {
+        position:"fixed", left:0, right:0,
+        bottom:`calc(56px + env(safe-area-inset-bottom))`,  // above bottom nav
+        padding:T.s[3], background:T.bg, borderTop:T.rule1, zIndex:48
+      } : {marginTop:T.s[5]}}>
+        <button onClick={logTrade} style={{
+          ...sty.btn("primary"),
+          width:"100%",
+          padding:`${T.s[4]}px`,
+          fontSize:T.size.body,
+          minHeight:52,
+        }}>
+          {editingTradeId ? "update trade →" : (tf.exitPrice ? "log closed trade →" : "log open trade →")}
+        </button>
+      </div>
     </div>
     );
   };
@@ -884,7 +1154,7 @@ export default function App() {
                   {!isMob && <span style={{color:t.direction==="Long"?T.gr:T.rd,fontSize:T.size.small}}>{t.direction?.toLowerCase()}</span>}
                   {!isMob && <span style={{color:T.mut,fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.small}}>{t.entry}</span>}
                   {!isMob && <span style={{color:T.mut,fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.small}}>{t.exitPrice}</span>}
-                  <span style={{color:net>=0?T.gr:T.rd,fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.body, textAlign:isMob?"right":"left"}}>{t.pnl?fmt(net):"—"}</span>
+                  <span style={{color:t.status==="open"?T.amb:(net>=0?T.gr:T.rd),fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.body, textAlign:isMob?"right":"left"}}>{t.status==="open"?"open":(t.pnl?fmt(net):"—")}</span>
                   {!isMob && <span style={{color:T.amb,fontSize:T.size.small}}>{t.rrAchieved||"—"}</span>}
                   <span style={{color:T.mut2,fontSize:T.size.small,textAlign:"right"}}>{exp?"▾":"▸"}</span>
                 </div>
@@ -986,8 +1256,110 @@ export default function App() {
                       )}
                     </div>
 
-                    <div style={{marginTop:T.s[4], textAlign:"right"}}>
-                      <button onClick={()=>{if(confirm("Delete this trade?")) delTrade(t.id);}} style={{...sty.btn(),color:T.rd,border:`1px solid ${T.rd}`}}>delete trade</button>
+                    {/* Legs (entries + exits) */}
+                    {(()=>{
+                      const { entries, exits } = tradeLegs(t);
+                      const totalEntrySize = sumSize(entries);
+                      const totalExitSize  = sumSize(exits);
+                      const openSize = totalEntrySize - totalExitSize;
+                      return (
+                        <div style={{borderTop:T.rule1,paddingTop:T.s[5],marginBottom:T.s[5]}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:T.s[3]}}>
+                            <span style={{...sty.label,color:T.amb}}>position legs</span>
+                            <span style={{color:T.mut,fontSize:T.size.small,fontFamily:"'JetBrains Mono', monospace"}}>
+                              filled <span style={{color:T.gr}}>{totalEntrySize}</span> · closed <span style={{color:T.rd}}>{totalExitSize}</span> · open <span style={{color:t.status==="open"||t.status==="partial"?T.amb:T.mut}}>{openSize}</span>
+                            </span>
+                          </div>
+
+                          {/* Entries table */}
+                          {entries.length > 0 && (
+                            <div style={{marginBottom:T.s[4]}}>
+                              <div style={{...sty.label,color:t.direction==="Long"?T.gr:T.rd,marginBottom:T.s[2],fontSize:T.size.tiny}}>{t.direction==="Long"?"entries (buys)":"entries (sells)"}</div>
+                              {entries.map((leg,i) => (
+                                <div key={i} style={{display:"grid",gridTemplateColumns:isMob?"60px 1fr 1fr 30px":"80px 1fr 1fr 1fr 40px",gap:T.s[2],padding:`${T.s[2]}px 0`,borderBottom:T.rule1,fontSize:T.size.small,alignItems:"center"}}>
+                                  <span style={{color:T.mut}}>#{i+1}</span>
+                                  <span style={{color:T.text,fontFamily:"'JetBrains Mono', monospace"}}>{leg.size}</span>
+                                  <span style={{color:T.text,fontFamily:"'JetBrains Mono', monospace"}}>@ {leg.price}</span>
+                                  {!isMob && <span style={{color:T.mut}}>{leg.time||"—"}</span>}
+                                  <button onClick={()=>{if(confirm("Remove this entry?")) removeLeg(t.id,"entry",i);}} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",fontSize:14,padding:0}}>×</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Exits table */}
+                          {exits.length > 0 && (
+                            <div style={{marginBottom:T.s[4]}}>
+                              <div style={{...sty.label,color:t.direction==="Long"?T.rd:T.gr,marginBottom:T.s[2],fontSize:T.size.tiny}}>{t.direction==="Long"?"exits (sells)":"exits (buys)"}</div>
+                              {exits.map((leg,i) => (
+                                <div key={i} style={{display:"grid",gridTemplateColumns:isMob?"60px 1fr 1fr 30px":"80px 1fr 1fr 1fr 40px",gap:T.s[2],padding:`${T.s[2]}px 0`,borderBottom:T.rule1,fontSize:T.size.small,alignItems:"center"}}>
+                                  <span style={{color:T.mut}}>#{i+1}</span>
+                                  <span style={{color:T.text,fontFamily:"'JetBrains Mono', monospace"}}>{leg.size}</span>
+                                  <span style={{color:T.text,fontFamily:"'JetBrains Mono', monospace"}}>@ {leg.price}</span>
+                                  {!isMob && <span style={{color:T.mut}}>{leg.time||"—"}</span>}
+                                  <button onClick={()=>{if(confirm("Remove this exit?")) removeLeg(t.id,"exit",i);}} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",fontSize:14,padding:0}}>×</button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Add leg controls — only show if trade not fully closed */}
+                          {t.status !== "closed" && (
+                            <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:T.s[4],marginTop:T.s[4]}}>
+                              {/* Add Entry (pyramid in) */}
+                              <div style={{padding:T.s[4],border:`1px solid ${T.mut2}`}}>
+                                <div style={{...sty.label,color:T.gr,marginBottom:T.s[3]}}>add entry (pyramid in)</div>
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[2],marginBottom:T.s[3]}}>
+                                  <input id={`ae-p-${t.id}`} type="number" placeholder="price" style={sty.input}/>
+                                  <input id={`ae-s-${t.id}`} type="number" placeholder="size"  style={sty.input}/>
+                                </div>
+                                <button onClick={()=>{
+                                  const p = document.getElementById(`ae-p-${t.id}`).value;
+                                  const s = document.getElementById(`ae-s-${t.id}`).value;
+                                  if(!p||!s) return alert("Price and size required");
+                                  addEntryLeg(t.id,{price:p,size:s,time:nowT(),note:""});
+                                  document.getElementById(`ae-p-${t.id}`).value="";
+                                  document.getElementById(`ae-s-${t.id}`).value="";
+                                }} style={{...sty.btn(),width:"100%",borderColor:T.gr,color:T.gr}}>+ add entry</button>
+                              </div>
+                              {/* Add Exit (partial close) */}
+                              <div style={{padding:T.s[4],border:`1px solid ${T.mut2}`}}>
+                                <div style={{...sty.label,color:T.rd,marginBottom:T.s[3]}}>add exit{openSize>0?` · max ${openSize}`:""}</div>
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[2],marginBottom:T.s[3]}}>
+                                  <input id={`ax-p-${t.id}`} type="number" placeholder="price" style={sty.input}/>
+                                  <input id={`ax-s-${t.id}`} type="number" placeholder={`size${openSize>0?` (${openSize})`:""}`} style={sty.input}/>
+                                </div>
+                                <div style={{display:"flex",gap:T.s[2]}}>
+                                  <button onClick={()=>{
+                                    const p = document.getElementById(`ax-p-${t.id}`).value;
+                                    const s = document.getElementById(`ax-s-${t.id}`).value || String(openSize);
+                                    if(!p) return alert("Price required");
+                                    if(parseFloat(s) <= 0) return alert("Size must be > 0");
+                                    closeOpenTrade(t.id, p, s);
+                                    document.getElementById(`ax-p-${t.id}`).value="";
+                                    document.getElementById(`ax-s-${t.id}`).value="";
+                                  }} style={{...sty.btn(),flex:1,borderColor:T.rd,color:T.rd}}>partial close</button>
+                                  {openSize > 0 && (
+                                    <button onClick={()=>{
+                                      const p = document.getElementById(`ax-p-${t.id}`).value;
+                                      if(!p) return alert("Price required");
+                                      closeOpenTrade(t.id, p, openSize);
+                                    }} style={{...sty.btn("primary"),flex:1}}>close all</button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    <div style={{marginTop:T.s[4],display:"flex",justifyContent:"space-between",gap:T.s[3]}}>
+                      <button onClick={()=>startEditingTrade(t)} style={{...sty.btn(),color:T.amb,border:`1px solid ${T.amb}`}}>
+                        edit trade
+                      </button>
+                      <button onClick={()=>{if(confirm("Delete this trade?")) delTrade(t.id);}}
+                        style={{...sty.btn(),color:T.rd,border:`1px solid ${T.rd}`}}>delete trade</button>
                     </div>
                   </div>
                 )}
@@ -1566,7 +1938,7 @@ export default function App() {
               </button>
             </div>
           )}
-          <div style={{padding:`${T.s[5]}px ${T.s[4]}px ${T.s[16]}px`,maxWidth:"100vw",overflowX:"hidden"}}>{renderTab()}</div>
+          <div style={{padding:`${T.s[5]}px ${T.s[4]}px`,paddingBottom:`calc(${T.s[20]}px + env(safe-area-inset-bottom))`,maxWidth:"100vw",overflowX:"hidden"}}>{renderTab()}</div>
           <div style={{position:"fixed", bottom:0, left:0, right:0, background:T.bg, borderTop:T.rule1, display:"flex", paddingBottom:"env(safe-area-inset-bottom)", zIndex:99}}>
             {TABS.map((t,i) => (
               <button key={t.key} onClick={()=>{setTab(t.key); setMobileMenu(false);}}
