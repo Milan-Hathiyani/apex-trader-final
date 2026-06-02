@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.02.1719";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.02.2145";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -112,7 +112,8 @@ const DEFAULT_SETTINGS = {
 ════════════════════════════════════════════════════════════ */
 const fmt   = (n) => new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0}).format(n||0);
 const fmt2  = (n) => new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",minimumFractionDigits:2,maximumFractionDigits:2}).format(n||0);
-const today = () => new Date().toISOString().slice(0,10);
+const ymd   = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const today = () => ymd(new Date());
 const nowT  = () => new Date().toTimeString().slice(0,5);
 
 /* ════════════════════════════════════════════════════════════
@@ -1425,7 +1426,7 @@ export default function App() {
     const start = new Date(today.getFullYear(), today.getMonth() - monthsBack, 1);
     const cur = new Date(start);
     while (cur <= today) {
-      const k = cur.toISOString().slice(0,10);
+      const k = ymd(cur);
       out.push({ date:k, pnl:Math.round(map[k]||0), dayOfWeek:cur.getDay(), day:cur.getDate() });
       cur.setDate(cur.getDate()+1);
     }
@@ -1444,6 +1445,70 @@ export default function App() {
     const wl      = winLossCompare(aData);
     const cal     = calendarData(aData, 2);
     const aPnl    = aData.reduce((s,t)=>s+parseFloat(t.pnl||0),0);
+
+    // ── extended analytics computations ──
+    const durMin = (t) => {
+      const eT = (t.entries && t.entries[0] && t.entries[0].time) || t.time || "";
+      const xT = (t.exits && t.exits.length && t.exits[t.exits.length-1].time) || "";
+      if (!eT || !xT) return null;
+      const e = new Date(`${t.date}T${eT}`);
+      let   x = new Date(`${t.date}T${xT}`);
+      if (isNaN(e.getTime()) || isNaN(x.getTime())) return null;
+      if (x < e) x = new Date(x.getTime() + 86400000); // crossed midnight
+      const m = (x - e) / 60000;
+      return (m >= 0 && m < 60*24) ? m : null;
+    };
+    const withDur = aData.map(t => ({ t, d:durMin(t) })).filter(o => o.d !== null);
+    const avgOf   = (arr) => arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0;
+    const fmtDur  = (m) => {
+      if (m == null) return "—";
+      const tot = Math.round(m*60), h = Math.floor(tot/3600), mm = Math.floor((tot%3600)/60), ss = tot%60;
+      return h ? `${h}h ${mm}m` : mm ? `${mm}m ${ss}s` : `${ss}s`;
+    };
+    const winsA = aData.filter(t=>parseFloat(t.pnl)>0);
+    const lossA = aData.filter(t=>parseFloat(t.pnl)<=0);
+    const gwA   = winsA.reduce((s,t)=>s+parseFloat(t.pnl||0),0);
+    const glA   = Math.abs(lossA.reduce((s,t)=>s+parseFloat(t.pnl||0),0));
+    const pfA   = glA ? (gwA/glA).toFixed(2) : "—";
+    const winRateA = aData.length ? (winsA.length/aData.length*100) : 0;
+    const avgWinA  = winsA.length ? gwA/winsA.length : 0;
+    const avgLossA = lossA.length ? -glA/lossA.length : 0;
+    const wlRatio  = avgLossA ? Math.abs(avgWinA/avgLossA).toFixed(2) : "—";
+    const totalContracts = Math.round(aData.reduce((s,t)=>s+(parseFloat(t.size)||0),0));
+    const dayMap = {};
+    aData.forEach(t => { (dayMap[t.date] = dayMap[t.date] || []).push(t); });
+    const dayEntries = Object.entries(dayMap).map(([date, ts]) => ({ date, pnl:ts.reduce((s,t)=>s+parseFloat(t.pnl||0),0), n:ts.length }));
+    const winDays    = dayEntries.filter(d=>d.pnl>0).length;
+    const dayWinRate = dayEntries.length ? (winDays/dayEntries.length*100) : 0;
+    const bestDay    = dayEntries.reduce((b,d)=> d.pnl>(b?b.pnl:-Infinity)?d:b, null);
+    const bestDayPct = (aPnl>0 && bestDay) ? (bestDay.pnl/aPnl*100) : 0;
+    const bestTrade  = aData.reduce((b,t)=> parseFloat(t.pnl)>(b?parseFloat(b.pnl):-Infinity)?t:b, null);
+    const worstTrade = aData.reduce((b,t)=> parseFloat(t.pnl)<(b?parseFloat(b.pnl):Infinity)?t:b, null);
+    const dailySeries = [...dayEntries].sort((a,b)=>a.date.localeCompare(b.date)).map(d=>({ date:d.date.slice(5), pnl:Math.round(d.pnl) }));
+    const dirStat = (arr) => ({ n:arr.length, w:arr.filter(t=>parseFloat(t.pnl)>0).length, pnl:arr.reduce((s,t)=>s+parseFloat(t.pnl||0),0) });
+    const longS  = dirStat(aData.filter(t=>t.direction==="Long"));
+    const shortS = dirStat(aData.filter(t=>t.direction==="Short"));
+    const durDefs = [
+      {l:"< 1 min",  lo:0,   hi:1},
+      {l:"1–5 min",  lo:1,   hi:5},
+      {l:"5–10 min", lo:5,   hi:10},
+      {l:"10–30 min",lo:10,  hi:30},
+      {l:"30–60 min",lo:30,  hi:60},
+      {l:"1–2 hr",   lo:60,  hi:120},
+      {l:"2 hr+",    lo:120, hi:Infinity},
+    ];
+    const durBuckets = durDefs.map(b => {
+      const items = withDur.filter(o => o.d >= b.lo && o.d < b.hi);
+      const w = items.filter(o=>parseFloat(o.t.pnl)>0).length;
+      return { label:b.l, n:items.length, w, winRate: items.length ? w/items.length*100 : 0, pnl: items.reduce((s,o)=>s+parseFloat(o.t.pnl||0),0) };
+    });
+    const dowNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const dowMap = {};
+    aData.forEach(t => { const dw = new Date(t.date+"T00:00:00").getDay(); (dowMap[dw]=dowMap[dw]||[]).push(t); });
+    const dowStat = dowNames.map((name,i) => { const ts=dowMap[i]||[]; return { name, n:ts.length, pnl:ts.reduce((s,t)=>s+parseFloat(t.pnl||0),0) }; }).filter(d=>d.n>0);
+    const mostActive  = dowStat.reduce((b,d)=> d.n>(b?b.n:-1)?d:b, null);
+    const mostProfit  = dowStat.reduce((b,d)=> d.pnl>(b?b.pnl:-Infinity)?d:b, null);
+    const leastProfit = dowStat.reduce((b,d)=> d.pnl<(b?b.pnl:Infinity)?d:b, null);
 
     return (
       <div>
@@ -1464,8 +1529,43 @@ export default function App() {
           </div>
         </div>
 
-        {/* §01 PERFORMANCE CALENDAR */}
-        <Sec n="01" title="performance calendar" right="last ~60 days"/>
+        {/* §01 KEY METRICS */}
+        <Sec n="01" title="key metrics" right={analyticsView}/>
+        <div style={{borderLeft:T.rule1,borderBottom:T.rule1,display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)",marginBottom:T.s[4]}}>
+          {[
+            {l:"win rate",             v:winRateA.toFixed(1)+"%",                      c:winRateA>=50?T.gr:T.rd},
+            {l:"profit factor",        v:pfA,                                          c:T.amb},
+            {l:"avg win : loss",       v:wlRatio,                                      c:T.text},
+            {l:"day win %",            v:dayWinRate.toFixed(1)+"%",                    c:dayWinRate>=50?T.gr:T.rd},
+            {l:"avg winning trade",    v:fmt(avgWinA),                                 c:T.gr},
+            {l:"avg losing trade",     v:fmt(avgLossA),                                c:T.rd},
+            {l:"best day % of profit", v:(bestDayPct>0?bestDayPct.toFixed(0):"0")+"%", c:T.text},
+            {l:"total contracts",      v:totalContracts,                              c:T.text},
+            {l:"avg duration",         v:fmtDur(avgOf(withDur.map(o=>o.d))||null),     c:T.text, sub:`${withDur.length} timed`},
+            {l:"avg win duration",     v:fmtDur(avgOf(withDur.filter(o=>parseFloat(o.t.pnl)>0).map(o=>o.d))||null),  c:T.gr},
+            {l:"avg loss duration",    v:fmtDur(avgOf(withDur.filter(o=>parseFloat(o.t.pnl)<=0).map(o=>o.d))||null), c:T.rd},
+            {l:"total trades",         v:aData.length,                                c:T.text},
+          ].map(m => (
+            <div key={m.l} style={{borderTop:T.rule1,borderRight:T.rule1}}>
+              <Metric label={m.l} value={m.v} color={m.c} sub={m.sub}/>
+            </div>
+          ))}
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:T.s[4],marginBottom:T.s[8]}}>
+          <div style={{border:T.rule1,padding:`${T.s[4]}px ${T.s[5]}px`}}>
+            <div style={sty.label}>best trade</div>
+            <div style={{color:T.gr,fontSize:T.size.h2,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light}}>{bestTrade?fmt(bestTrade.pnl):"—"}</div>
+            {bestTrade && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[1]}}>{bestTrade.direction} {bestTrade.instrument} · {bestTrade.date}</div>}
+          </div>
+          <div style={{border:T.rule1,padding:`${T.s[4]}px ${T.s[5]}px`}}>
+            <div style={sty.label}>worst trade</div>
+            <div style={{color:T.rd,fontSize:T.size.h2,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light}}>{worstTrade?fmt(worstTrade.pnl):"—"}</div>
+            {worstTrade && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[1]}}>{worstTrade.direction} {worstTrade.instrument} · {worstTrade.date}</div>}
+          </div>
+        </div>
+
+        {/* §02 PERFORMANCE CALENDAR */}
+        <Sec n="02" title="performance calendar" right="last ~60 days"/>
         <div style={{marginBottom:T.s[8]}}>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr)",gap:3,maxWidth:isMob?"100%":420}}>
             {["S","M","T","W","T","F","S"].map((d,i) => <div key={i} style={{textAlign:"center",fontSize:T.size.tiny,color:T.mut,padding:T.s[1]}}>{d}</div>)}
@@ -1491,8 +1591,25 @@ export default function App() {
           </div>
         </div>
 
-        {/* §02 EQUITY CURVE */}
-        <Sec n="02" title="equity curve"/>
+        {/* §03 NET DAILY P&L */}
+        <Sec n="03" title="net daily p&l" right={`${dayEntries.length} days`}/>
+        {dailySeries.length ? (
+          <div style={{marginBottom:T.s[8]}}>
+            <ResponsiveContainer width="100%" height={isMob?180:240}>
+              <BarChart data={dailySeries} margin={{top:8,right:0,bottom:0,left:0}}>
+                <XAxis dataKey="date" stroke={T.mut2} tick={{fill:T.mut,fontSize:10}} interval="preserveStartEnd"/>
+                <YAxis stroke={T.mut2} tick={{fill:T.mut,fontSize:10}} tickFormatter={fmt} width={70}/>
+                <Tooltip contentStyle={{background:T.card,border:T.rule1,fontFamily:"'JetBrains Mono', monospace"}} labelStyle={{color:T.text}} itemStyle={{color:T.text}} formatter={v=>[fmt(v),"net"]} cursor={{fill:"rgba(255,255,255,0.03)"}}/>
+                <Bar dataKey="pnl">
+                  {dailySeries.map((d,i)=><Cell key={i} fill={d.pnl>=0?T.gr:T.rd}/>)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>no data</div>}
+
+        {/* §04 EQUITY CURVE */}
+        <Sec n="04" title="equity curve"/>
         {(() => {
           let c=0; const data = [...aData].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{c+=parseFloat(t.pnl||0); return {date:t.date.slice(5), v:Math.round(c)};});
           return data.length>1 ? (
@@ -1509,8 +1626,67 @@ export default function App() {
           ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>not enough data</div>;
         })()}
 
-        {/* §03 SETUP PERFORMANCE */}
-        <Sec n="03" title="setup performance" right="ranked by expectancy"/>
+        {/* §05 TRADE DIRECTION */}
+        <Sec n="05" title="trade direction" right="long vs short"/>
+        <div style={{borderTop:T.rule1,borderBottom:T.rule1,marginBottom:T.s[8]}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",padding:`${T.s[3]}px`,borderBottom:T.rule1}}>
+            <span style={sty.label}></span>
+            <span style={sty.label}>trades</span>
+            <span style={sty.label}>win rate</span>
+            <span style={{...sty.label,textAlign:"right"}}>net p&l</span>
+          </div>
+          {[["long",longS],["short",shortS]].map(([l,s],i) => (
+            <div key={l} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",padding:`${T.s[3]}px`,borderBottom:i<1?T.rule1:"none",fontSize:T.size.small,alignItems:"center"}}>
+              <span style={{color:T.text}}>{l}</span>
+              <span style={{color:T.mut}}>{s.n}</span>
+              <span style={{color:s.n&&s.w/s.n>=0.5?T.gr:T.rd}}>{s.n?(s.w/s.n*100).toFixed(0):"0"}%</span>
+              <span style={{color:s.pnl>=0?T.gr:T.rd,fontFamily:"'JetBrains Mono', monospace",textAlign:"right"}}>{fmt(s.pnl)}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* §06 DURATION ANALYSIS */}
+        <Sec n="06" title="duration analysis" right={`${withDur.length} timed trades`}/>
+        {withDur.length ? (
+          <div style={{borderTop:T.rule1,borderBottom:T.rule1,marginBottom:T.s[8]}}>
+            <div style={{display:"grid",gridTemplateColumns:"1.6fr 1fr 1fr 1fr",padding:`${T.s[3]}px`,borderBottom:T.rule1}}>
+              <span style={sty.label}>duration</span>
+              <span style={sty.label}>trades</span>
+              <span style={sty.label}>win rate</span>
+              <span style={{...sty.label,textAlign:"right"}}>net p&l</span>
+            </div>
+            {durBuckets.filter(b=>b.n>0).map((b,i,arr) => (
+              <div key={b.label} style={{display:"grid",gridTemplateColumns:"1.6fr 1fr 1fr 1fr",padding:`${T.s[3]}px`,borderBottom:i<arr.length-1?T.rule1:"none",fontSize:T.size.small,alignItems:"center"}}>
+                <span style={{color:T.text}}>{b.label}</span>
+                <span style={{color:T.mut}}>{b.n}</span>
+                <span style={{color:b.winRate>=50?T.gr:T.rd}}>{b.winRate.toFixed(0)}%</span>
+                <span style={{color:b.pnl>=0?T.gr:T.rd,fontFamily:"'JetBrains Mono', monospace",textAlign:"right"}}>{fmt(b.pnl)}</span>
+              </div>
+            ))}
+          </div>
+        ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[8]}}>no trades with both entry &amp; exit timestamps — duration needs a time on the entry and exit legs.</div>}
+
+        {/* §07 DAY OF WEEK */}
+        <Sec n="07" title="day of week" right="weekday performance"/>
+        <div style={{borderLeft:T.rule1,borderBottom:T.rule1,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",marginBottom:T.s[6]}}>
+          <div style={{borderTop:T.rule1,borderRight:T.rule1}}><Metric label="most active" value={mostActive?mostActive.name:"—"} sub={mostActive?`${mostActive.n} trades`:undefined}/></div>
+          <div style={{borderTop:T.rule1,borderRight:T.rule1}}><Metric label="most profitable" value={mostProfit?mostProfit.name:"—"} color={mostProfit&&mostProfit.pnl>=0?T.gr:T.rd} sub={mostProfit?fmt(mostProfit.pnl):undefined}/></div>
+          <div style={{borderTop:T.rule1,borderRight:T.rule1}}><Metric label="least profitable" value={leastProfit?leastProfit.name:"—"} color={leastProfit&&leastProfit.pnl>=0?T.gr:T.rd} sub={leastProfit?fmt(leastProfit.pnl):undefined}/></div>
+        </div>
+        {dowStat.length ? (
+          <div style={{borderTop:T.rule1,borderBottom:T.rule1,marginBottom:T.s[8]}}>
+            {dowStat.map((d,i) => (
+              <div key={d.name} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",padding:`${T.s[3]}px`,borderBottom:i<dowStat.length-1?T.rule1:"none",fontSize:T.size.small,alignItems:"center"}}>
+                <span style={{color:T.text}}>{d.name}</span>
+                <span style={{color:T.mut}}>{d.n} trades</span>
+                <span style={{color:d.pnl>=0?T.gr:T.rd,fontFamily:"'JetBrains Mono', monospace",textAlign:"right"}}>{fmt(d.pnl)}</span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {/* §08 SETUP PERFORMANCE */}
+        <Sec n="08" title="setup performance" right="ranked by expectancy"/>
         {setups2.length ? (
           <div style={{borderTop:T.rule1,borderBottom:T.rule1,marginBottom:T.s[8]}}>
             <div style={{display:"grid",gridTemplateColumns:isMob?"2fr 1fr 1fr 1fr":"2.5fr 1fr 1fr 1fr 1fr",padding:`${T.s[3]}px ${T.s[3]}px`,borderBottom:T.rule1,...sty.label}}>
@@ -1528,8 +1704,8 @@ export default function App() {
           </div>
         ) : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>need at least 2 trades per setup</div>}
 
-        {/* §04 WIN vs LOSS */}
-        <Sec n="04" title="win vs loss comparison"/>
+        {/* §09 WIN vs LOSS */}
+        <Sec n="09" title="win vs loss comparison"/>
         <div style={{borderTop:T.rule1,borderBottom:T.rule1,marginBottom:T.s[8]}}>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",padding:`${T.s[3]}px ${T.s[3]}px`,borderBottom:T.rule1}}>
             <span style={sty.label}></span>
@@ -1551,8 +1727,8 @@ export default function App() {
           ))}
         </div>
 
-        {/* §05 CONSISTENCY HEATMAP */}
-        <Sec n="05" title="consistency heatmap" right="rule adherence per day"/>
+        {/* §10 CONSISTENCY HEATMAP */}
+        <Sec n="10" title="consistency heatmap" right="rule adherence per day"/>
         {(() => {
           const byDate = {};
           aData.forEach(t => {
