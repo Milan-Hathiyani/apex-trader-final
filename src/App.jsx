@@ -1161,8 +1161,20 @@ export default function App() {
 
                 {exp && (
                   <div style={{padding:`${T.s[5]}px ${T.s[3]}px ${T.s[6]}px`, background:T.surf}}>
-                    {/* trade detail grid */}
-                    <div style={{...sty.label,marginBottom:T.s[3]}}>trade detail</div>
+                    {/* sticky action header — edit / delete always visible */}
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:T.s[4],paddingBottom:T.s[3],borderBottom:T.rule1}}>
+                      <div style={{...sty.label,color:T.amb}}>trade detail · {t.instrument}</div>
+                      <div style={{display:"flex",gap:T.s[2]}}>
+                        <button onClick={(e)=>{e.stopPropagation(); startEditingTrade(t);}}
+                          style={{...sty.btn(),color:T.amb,border:`1px solid ${T.amb}`,padding:`${T.s[2]}px ${T.s[3]}px`,fontSize:T.size.tiny,minHeight:36}}>
+                          edit
+                        </button>
+                        <button onClick={(e)=>{e.stopPropagation(); if(confirm("Delete this trade?")) delTrade(t.id);}}
+                          style={{...sty.btn(),color:T.rd,border:`1px solid ${T.rd}`,padding:`${T.s[2]}px ${T.s[3]}px`,fontSize:T.size.tiny,minHeight:36}}>
+                          delete
+                        </button>
+                      </div>
+                    </div>
                     <div style={{display:"grid", gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)", gap:T.s[4], marginBottom:T.s[6]}}>
                       {[
                         ["date & time",   `${t.date} ${t.time||""}`],
@@ -1354,13 +1366,7 @@ export default function App() {
                       );
                     })()}
 
-                    <div style={{marginTop:T.s[4],display:"flex",justifyContent:"space-between",gap:T.s[3]}}>
-                      <button onClick={()=>startEditingTrade(t)} style={{...sty.btn(),color:T.amb,border:`1px solid ${T.amb}`}}>
-                        edit trade
-                      </button>
-                      <button onClick={()=>{if(confirm("Delete this trade?")) delTrade(t.id);}}
-                        style={{...sty.btn(),color:T.rd,border:`1px solid ${T.rd}`}}>delete trade</button>
-                    </div>
+
                   </div>
                 )}
               </div>
