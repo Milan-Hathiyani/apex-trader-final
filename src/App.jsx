@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.02.2145";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.02.2240";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -285,6 +285,7 @@ const recalcLegs = (trade) => {
 const emptyTrade = (instr, setup, emo) => ({
   date:today(), time:nowT(), instrument:instr||"", segment:detectSegment(instr||"",setup||""),
   direction:"Long", tradeType:"Intraday", setup:setup||"", entry:"", sl:"", exitPrice:"", size:"",
+  exitTime:"",            // optional exit time (entry time = `time`); enables holding-duration
   entries:[], exits:[],   // pyramiding + partial exits
   status:"open",
   riskAmount:"", grossPnl:"", pnl:"", brokerage:"", stt:"", txnCharges:"", sebi:"", gst:"", stamp:"", totalCharges:"",
@@ -541,7 +542,7 @@ export default function App() {
       const newExits = isClosed
         ? ((existing.exits && existing.exits.length > 1)
           ? [{...(existing.exits[0]||{}), price:String(tf.exitPrice), size:String(tf.size)}, ...existing.exits.slice(1)]
-          : [{ id:1, price:String(tf.exitPrice), size:String(tf.size), time:tf.time }])
+          : [{ id:1, price:String(tf.exitPrice), size:String(tf.size), time:tf.exitTime||tf.time }])
         : (existing.exits || []);
       const merged = recalcLegs({
         ...existing, ...tf, id: editingTradeId,
@@ -567,7 +568,7 @@ export default function App() {
     const tradeId = Date.now();
     // Materialize initial legs from the simple form fields
     const initialEntries = tf.entry ? [{ price: tf.entry, size: tf.size||"0", time: tf.time||nowT(), note: "" }] : [];
-    const initialExits   = isClosed ? [{ price: tf.exitPrice, size: tf.size||"0", time: nowT(), note: "" }] : [];
+    const initialExits   = isClosed ? [{ price: tf.exitPrice, size: tf.size||"0", time: tf.exitTime||nowT(), note: "" }] : [];
     const base = {
       ...tf, id: tradeId, status,
       entries: initialEntries,
@@ -620,7 +621,9 @@ export default function App() {
 
   const startEditingTrade = (t) => {
     setEditingTradeId(t.id);
-    setTf({...t});  // pre-fill form with this trade
+    const eTime = (t.entries && t.entries[0] && t.entries[0].time) || t.time || "";
+    const xTime = (t.exits && t.exits.length && t.exits[t.exits.length-1].time) || "";
+    setTf({...t, time:eTime, exitTime:xTime});  // pre-fill form with this trade
     setTab("journal");
     setDrawer(null);
     if (typeof window !== "undefined") window.scrollTo(0, 0);
@@ -1041,6 +1044,12 @@ export default function App() {
         <Field label="position size"><input type="number" style={sty.input} value={tf.size} onChange={e=>updateTf({size:e.target.value})}/></Field>
       </div>
 
+      {/* times — for holding-duration tracking */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
+        <Field label="entry time"><input type="time" style={sty.input} value={tf.time||""} onChange={e=>setTf({...tf,time:e.target.value})}/></Field>
+        <Field label="exit time"><input type="time" style={sty.input} value={tf.exitTime||""} onChange={e=>setTf({...tf,exitTime:e.target.value})} placeholder="for holding time"/></Field>
+      </div>
+
       {/* live preview */}
       {tf.entry && tf.exitPrice && tf.size && parseFloat(tf.totalCharges||0) > 0 && (
         <div style={{borderTop:T.rule1, borderBottom:T.rule1, padding:`${T.s[5]}px 0`, marginBottom:T.s[5], display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:T.s[4]}}>
@@ -1418,19 +1427,33 @@ export default function App() {
     };
   };
 
-  const calendarData = (list, monthsBack=2) => {
-    const map = {};
-    list.forEach(t => { if (!map[t.date]) map[t.date]=0; map[t.date]+=parseFloat(t.pnl||0); });
-    const out = [];
-    const today = new Date();
-    const start = new Date(today.getFullYear(), today.getMonth() - monthsBack, 1);
-    const cur = new Date(start);
-    while (cur <= today) {
-      const k = ymd(cur);
-      out.push({ date:k, pnl:Math.round(map[k]||0), dayOfWeek:cur.getDay(), day:cur.getDate() });
-      cur.setDate(cur.getDate()+1);
+  const calendarMonth = (list) => {
+    const map = {}, cnt = {};
+    list.forEach(t => { map[t.date] = (map[t.date]||0) + parseFloat(t.pnl||0); cnt[t.date] = (cnt[t.date]||0) + 1; });
+    const now = new Date();
+    const year = now.getFullYear(), month = now.getMonth();
+    const first = new Date(year, month, 1);
+    const daysInMonth = new Date(year, month+1, 0).getDate();
+    const cells = [];
+    for (let i=0; i<first.getDay(); i++) cells.push(null);          // leading pad (Sun start)
+    for (let d=1; d<=daysInMonth; d++) {
+      const k = ymd(new Date(year, month, d));
+      cells.push({ date:k, day:d, pnl:Math.round(map[k]||0), trades:cnt[k]||0 });
     }
-    return out;
+    while (cells.length % 7 !== 0) cells.push(null);                 // trailing pad
+    const weeks = [];
+    for (let i=0; i<cells.length; i+=7) {
+      const wk = cells.slice(i, i+7);
+      weeks.push({
+        cells: wk,
+        total: wk.reduce((s,c)=> s + (c?c.pnl:0), 0),
+        trades: wk.reduce((s,c)=> s + (c?c.trades:0), 0),
+      });
+    }
+    const monthTotal = Math.round(weeks.reduce((s,w)=>s+w.total, 0));
+    const monthTrades = weeks.reduce((s,w)=>s+w.trades, 0);
+    const monthName = first.toLocaleDateString("en-US",{ month:"long", year:"numeric" });
+    return { weeks, monthTotal, monthTrades, monthName };
   };
 
   const aData = (() => {
@@ -1443,7 +1466,7 @@ export default function App() {
   const renderAnalytics = () => {
     const setups2 = setupReport(aData);
     const wl      = winLossCompare(aData);
-    const cal     = calendarData(aData, 2);
+    const cal     = calendarMonth(aData);
     const aPnl    = aData.reduce((s,t)=>s+parseFloat(t.pnl||0),0);
 
     // ── extended analytics computations ──
@@ -1484,6 +1507,8 @@ export default function App() {
     const bestDayPct = (aPnl>0 && bestDay) ? (bestDay.pnl/aPnl*100) : 0;
     const bestTrade  = aData.reduce((b,t)=> parseFloat(t.pnl)>(b?parseFloat(b.pnl):-Infinity)?t:b, null);
     const worstTrade = aData.reduce((b,t)=> parseFloat(t.pnl)<(b?parseFloat(b.pnl):Infinity)?t:b, null);
+    const bestWin    = bestTrade  && parseFloat(bestTrade.pnl)  > 0 ? bestTrade  : null;
+    const worstLoss  = worstTrade && parseFloat(worstTrade.pnl) < 0 ? worstTrade : null;
     const dailySeries = [...dayEntries].sort((a,b)=>a.date.localeCompare(b.date)).map(d=>({ date:d.date.slice(5), pnl:Math.round(d.pnl) }));
     const dirStat = (arr) => ({ n:arr.length, w:arr.filter(t=>parseFloat(t.pnl)>0).length, pnl:arr.reduce((s,t)=>s+parseFloat(t.pnl||0),0) });
     const longS  = dirStat(aData.filter(t=>t.direction==="Long"));
@@ -1509,6 +1534,7 @@ export default function App() {
     const mostActive  = dowStat.reduce((b,d)=> d.n>(b?b.n:-1)?d:b, null);
     const mostProfit  = dowStat.reduce((b,d)=> d.pnl>(b?b.pnl:-Infinity)?d:b, null);
     const leastProfit = dowStat.reduce((b,d)=> d.pnl<(b?b.pnl:Infinity)?d:b, null);
+    const mostProfitDay = mostProfit && mostProfit.pnl > 0 ? mostProfit : null;
 
     return (
       <div>
@@ -1540,7 +1566,6 @@ export default function App() {
             {l:"avg winning trade",    v:fmt(avgWinA),                                 c:T.gr},
             {l:"avg losing trade",     v:fmt(avgLossA),                                c:T.rd},
             {l:"best day % of profit", v:(bestDayPct>0?bestDayPct.toFixed(0):"0")+"%", c:T.text},
-            {l:"total contracts",      v:totalContracts,                              c:T.text},
             {l:"avg duration",         v:fmtDur(avgOf(withDur.map(o=>o.d))||null),     c:T.text, sub:`${withDur.length} timed`},
             {l:"avg win duration",     v:fmtDur(avgOf(withDur.filter(o=>parseFloat(o.t.pnl)>0).map(o=>o.d))||null),  c:T.gr},
             {l:"avg loss duration",    v:fmtDur(avgOf(withDur.filter(o=>parseFloat(o.t.pnl)<=0).map(o=>o.d))||null), c:T.rd},
@@ -1554,33 +1579,44 @@ export default function App() {
         <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:T.s[4],marginBottom:T.s[8]}}>
           <div style={{border:T.rule1,padding:`${T.s[4]}px ${T.s[5]}px`}}>
             <div style={sty.label}>best trade</div>
-            <div style={{color:T.gr,fontSize:T.size.h2,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light}}>{bestTrade?fmt(bestTrade.pnl):"—"}</div>
-            {bestTrade && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[1]}}>{bestTrade.direction} {bestTrade.instrument} · {bestTrade.date}</div>}
+            <div style={{color:bestWin?T.gr:T.mut,fontSize:T.size.h2,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light}}>{bestWin?fmt(bestWin.pnl):"—"}</div>
+            {bestWin && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[1]}}>{bestWin.direction} {bestWin.instrument} · {bestWin.date}</div>}
           </div>
           <div style={{border:T.rule1,padding:`${T.s[4]}px ${T.s[5]}px`}}>
             <div style={sty.label}>worst trade</div>
-            <div style={{color:T.rd,fontSize:T.size.h2,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light}}>{worstTrade?fmt(worstTrade.pnl):"—"}</div>
-            {worstTrade && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[1]}}>{worstTrade.direction} {worstTrade.instrument} · {worstTrade.date}</div>}
+            <div style={{color:worstLoss?T.rd:T.mut,fontSize:T.size.h2,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light}}>{worstLoss?fmt(worstLoss.pnl):"—"}</div>
+            {worstLoss && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[1]}}>{worstLoss.direction} {worstLoss.instrument} · {worstLoss.date}</div>}
           </div>
         </div>
 
         {/* §02 PERFORMANCE CALENDAR */}
-        <Sec n="02" title="performance calendar" right="last ~60 days"/>
+        <Sec n="02" title="performance calendar" right={cal.monthName}/>
         <div style={{marginBottom:T.s[8]}}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr)",gap:3,maxWidth:isMob?"100%":420}}>
-            {["S","M","T","W","T","F","S"].map((d,i) => <div key={i} style={{textAlign:"center",fontSize:T.size.tiny,color:T.mut,padding:T.s[1]}}>{d}</div>)}
-            {cal.length > 0 && Array(cal[0].dayOfWeek).fill(null).map((_,i) => <div key={"empty-"+i}/>)}
-            {cal.map(d => {
-              const intensity = d.pnl===0 ? 0 : Math.min(1, Math.abs(d.pnl)/5000);
-              const color = d.pnl > 0 ? `rgba(107,158,107,${0.3+intensity*0.7})`
-                          : d.pnl < 0 ? `rgba(168,90,82,${0.3+intensity*0.7})` : "transparent";
-              return (
-                <div key={d.date} title={`${d.date} · ${d.pnl?fmt(d.pnl):"no trades"}`}
-                  style={{aspectRatio:"1",background:color,border:T.rule1,fontSize:T.size.tiny,display:"flex",alignItems:"center",justifyContent:"center",color:d.pnl?T.text:T.mut2,fontFamily:"\'JetBrains Mono\', monospace"}}>
-                  {d.day}
-                </div>
-              );
-            })}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr) 1.3fr",gap:3,maxWidth:isMob?"100%":540}}>
+            {["S","M","T","W","T","F","S"].map((d,i) => <div key={"h"+i} style={{textAlign:"center",fontSize:T.size.tiny,color:T.mut,padding:T.s[1]}}>{d}</div>)}
+            <div style={{textAlign:"right",fontSize:T.size.tiny,color:T.mut,padding:T.s[1],alignSelf:"center"}}>week</div>
+            {cal.weeks.flatMap((wk,wi) => [
+              ...wk.cells.map((c,ci) => {
+                if (!c) return <div key={`e${wi}-${ci}`}/>;
+                const intensity = c.pnl===0 ? 0 : Math.min(1, Math.abs(c.pnl)/5000);
+                const color = c.pnl > 0 ? `rgba(107,158,107,${0.3+intensity*0.7})`
+                            : c.pnl < 0 ? `rgba(168,90,82,${0.3+intensity*0.7})` : "transparent";
+                return (
+                  <div key={`${wi}-${ci}`} title={`${c.date} · ${c.pnl?fmt(c.pnl):"no trades"}${c.trades?` · ${c.trades} trades`:""}`}
+                    style={{aspectRatio:"1",background:color,border:T.rule1,fontSize:T.size.tiny,display:"flex",alignItems:"center",justifyContent:"center",color:c.pnl?T.text:T.mut2,fontFamily:"'JetBrains Mono', monospace"}}>
+                    {c.day}
+                  </div>
+                );
+              }),
+              <div key={`tot${wi}`} style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"center",padding:`0 ${T.s[2]}px`,fontSize:T.size.tiny,fontFamily:"'JetBrains Mono', monospace",color: wk.trades ? (wk.total>=0?T.gr:T.rd) : T.mut2,borderLeft:T.rule1}}>
+                <span>{wk.trades ? fmt(wk.total) : "—"}</span>
+                {wk.trades>0 && <span style={{color:T.mut2,marginTop:2}}>{wk.trades}t</span>}
+              </div>
+            ])}
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",maxWidth:isMob?"100%":540,marginTop:T.s[4],paddingTop:T.s[3],borderTop:T.rule1}}>
+            <span style={sty.label}>{cal.monthName} total · {cal.monthTrades} trades</span>
+            <span style={{fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.body,color:cal.monthTotal>=0?T.gr:T.rd}}>{fmt(cal.monthTotal)}</span>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:T.s[3],marginTop:T.s[3],fontSize:T.size.tiny,color:T.mut}}>
             <span>loss</span>
@@ -1670,7 +1706,7 @@ export default function App() {
         <Sec n="07" title="day of week" right="weekday performance"/>
         <div style={{borderLeft:T.rule1,borderBottom:T.rule1,display:"grid",gridTemplateColumns:isMob?"1fr":"repeat(3,1fr)",marginBottom:T.s[6]}}>
           <div style={{borderTop:T.rule1,borderRight:T.rule1}}><Metric label="most active" value={mostActive?mostActive.name:"—"} sub={mostActive?`${mostActive.n} trades`:undefined}/></div>
-          <div style={{borderTop:T.rule1,borderRight:T.rule1}}><Metric label="most profitable" value={mostProfit?mostProfit.name:"—"} color={mostProfit&&mostProfit.pnl>=0?T.gr:T.rd} sub={mostProfit?fmt(mostProfit.pnl):undefined}/></div>
+          <div style={{borderTop:T.rule1,borderRight:T.rule1}}><Metric label="most profitable" value={mostProfitDay?mostProfitDay.name:"—"} color={mostProfitDay?T.gr:T.mut} sub={mostProfitDay?fmt(mostProfitDay.pnl):undefined}/></div>
           <div style={{borderTop:T.rule1,borderRight:T.rule1}}><Metric label="least profitable" value={leastProfit?leastProfit.name:"—"} color={leastProfit&&leastProfit.pnl>=0?T.gr:T.rd} sub={leastProfit?fmt(leastProfit.pnl):undefined}/></div>
         </div>
         {dowStat.length ? (
@@ -1740,13 +1776,13 @@ export default function App() {
           if (!days.length) return <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[5]}px 0`,marginBottom:T.s[6]}}>no data</div>;
           return (
             <div style={{marginBottom:T.s[8]}}>
-              <div style={{display:"flex",flexWrap:"wrap",gap:3,maxWidth:isMob?"100%":600,marginBottom:T.s[3]}}>
+              <div style={{display:"flex",flexWrap:"wrap",gap:4,maxWidth:isMob?"100%":680,marginBottom:T.s[3]}}>
                 {days.map(([date,d]) => {
                   const rate = d.yes/d.total;
                   const color = rate >= 0.8 ? T.gr : rate >= 0.5 ? T.amb : T.rd;
                   return (
                     <div key={date} title={`${date} · ${d.yes}/${d.total} rules followed`}
-                      style={{width:14,height:14,background:color,opacity:0.3+rate*0.7,border:`1px solid ${T.bg}`}}/>
+                      style={{width:22,height:22,background:color,opacity:0.3+rate*0.7,border:`1px solid ${T.bg}`}}/>
                   );
                 })}
               </div>
@@ -2143,13 +2179,13 @@ export default function App() {
      LAYOUT
   ──────────────────────────────────────────────────────── */
   const renderSidebar = () => (
-    <aside style={{borderRight:T.rule1, padding:`${T.s[8]}px ${T.s[6]}px ${T.s[6]}px`, display:"flex", flexDirection:"column", background:T.bg, position:"sticky", top:0, height:"100vh", overflow:"auto"}}>
-      <div>
+    <aside style={{borderRight:T.rule1, padding:`${T.s[8]}px ${T.s[6]}px ${T.s[6]}px`, display:"flex", flexDirection:"column", background:T.bg, position:"sticky", top:0, height:"100vh", overflow:"hidden"}}>
+      <div style={{flexShrink:0}}>
         <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em"}}>trading journal</div>
         <div style={{fontSize:T.size.h1,fontWeight:T.weight.thin,letterSpacing:"-.02em",marginTop:T.s[2],color:T.text}}>Top 1%</div>
       </div>
 
-      <nav style={{marginTop:T.s[10], flex:1}}>
+      <nav style={{marginTop:T.s[10], flex:1, minHeight:0, overflowY:"auto"}}>
         {TABS.map((t, i) => (
           <div key={t.key} onClick={()=>setTab(t.key)} style={{display:"flex",gap:T.s[4],alignItems:"baseline",padding:`${T.s[3]}px 0`,cursor:"pointer",color:tab===t.key?T.amb:T.mut,borderBottom:T.rule1}}>
             <span style={{color:tab===t.key?T.amb:T.mut2,fontSize:T.size.label}}>{String(i+1).padStart(2,"0")}</span>
@@ -2174,7 +2210,7 @@ export default function App() {
         </div>
       </nav>
 
-      <div style={{paddingTop:T.s[5], borderTop:T.rule1}}>
+      <div style={{paddingTop:T.s[5], borderTop:T.rule1, flexShrink:0}}>
         <div style={{...sty.label,marginBottom:T.s[3]}}>session</div>
         <div style={{fontSize:T.size.small, color:T.mut, lineHeight:2}}>
           <div>acct &nbsp;<span style={{color:T.text}}>{activeUser}</span></div>
