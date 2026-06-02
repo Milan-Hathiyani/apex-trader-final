@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.02.1257";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.02.1301";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -1168,11 +1168,11 @@ export default function App() {
                       <div style={{...sty.label,color:T.amb}}>trade detail · {t.instrument}</div>
                       <div style={{display:"flex",gap:T.s[2]}}>
                         <button onClick={(e)=>{e.stopPropagation(); startEditingTrade(t);}}
-                          style={{...sty.btn(),color:T.amb,border:`1px solid ${T.amb}`,padding:`${T.s[2]}px ${T.s[3]}px`,fontSize:T.size.tiny,minHeight:36}}>
+                          style={{background:"transparent",color:T.amb,border:`1px solid ${T.amb}`,padding:`${T.s[2]}px ${T.s[4]}px`,fontSize:T.size.small,textTransform:"uppercase",letterSpacing:".14em",cursor:"pointer",fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.medium,minHeight:36,touchAction:"manipulation"}}>
                           edit
                         </button>
                         <button onClick={(e)=>{e.stopPropagation(); if(confirm("Delete this trade?")) delTrade(t.id);}}
-                          style={{...sty.btn(),color:T.rd,border:`1px solid ${T.rd}`,padding:`${T.s[2]}px ${T.s[3]}px`,fontSize:T.size.tiny,minHeight:36}}>
+                          style={{background:"transparent",color:T.rd,border:`1px solid ${T.rd}`,padding:`${T.s[2]}px ${T.s[4]}px`,fontSize:T.size.small,textTransform:"uppercase",letterSpacing:".14em",cursor:"pointer",fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.medium,minHeight:36,touchAction:"manipulation"}}>
                           delete
                         </button>
                       </div>
@@ -1317,12 +1317,12 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* Add leg controls — only show if trade not fully closed */}
-                          {t.status !== "closed" && (
+                          {/* Add leg controls — always available (you can add legs retroactively) */}
+                          {true && (
                             <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:T.s[4],marginTop:T.s[4]}}>
                               {/* Add Entry (pyramid in) */}
                               <div style={{padding:T.s[4],border:`1px solid ${T.mut2}`}}>
-                                <div style={{...sty.label,color:T.gr,marginBottom:T.s[3]}}>add entry (pyramid in)</div>
+                                <div style={{...sty.label,color:T.gr,marginBottom:T.s[3]}}>add entry {openSize===0?"(retroactive)":"(pyramid in)"}</div>
                                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[2],marginBottom:T.s[3]}}>
                                   <input id={`ae-p-${t.id}`} type="number" placeholder="price" style={sty.input}/>
                                   <input id={`ae-s-${t.id}`} type="number" placeholder="size"  style={sty.input}/>
@@ -1338,7 +1338,7 @@ export default function App() {
                               </div>
                               {/* Add Exit (partial close) */}
                               <div style={{padding:T.s[4],border:`1px solid ${T.mut2}`}}>
-                                <div style={{...sty.label,color:T.rd,marginBottom:T.s[3]}}>add exit{openSize>0?` · max ${openSize}`:""}</div>
+                                <div style={{...sty.label,color:T.rd,marginBottom:T.s[3]}}>add exit{openSize>0?` · ${openSize} open`:" (retroactive)"}</div>
                                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[2],marginBottom:T.s[3]}}>
                                   <input id={`ax-p-${t.id}`} type="number" placeholder="price" style={sty.input}/>
                                   <input id={`ax-s-${t.id}`} type="number" placeholder={`size${openSize>0?` (${openSize})`:""}`} style={sty.input}/>
