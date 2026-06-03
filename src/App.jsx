@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0330";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0400";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -1020,7 +1020,7 @@ export default function App() {
       {/* Pre-trade status banner: checklist + plan */}
       <div style={{display:"grid",gridTemplateColumns:matchingPlan?"1fr 1fr":"1fr",gap:T.s[3],marginBottom:T.s[6]}}>
         {/* Checklist status */}
-        <div onClick={()=>setShowChecklist(v=>!v)} style={{padding:T.s[4],border:T.rule1,cursor:"pointer"}}>
+        <div onClick={()=>setDrawer("checklist")} style={{padding:T.s[4],border:T.rule1,cursor:"pointer"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
             <span style={sty.label}>checklist</span>
             <span style={{color:pct>=80?T.gr:pct>=50?T.amb:T.mut,fontSize:T.size.h3,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light}}>{pct}%</span>
@@ -1028,7 +1028,7 @@ export default function App() {
           <div style={{display:"flex",gap:T.s[3],marginTop:T.s[2],fontSize:T.size.tiny,color:T.mut}}>
             <span><span style={{color:T.gr}}>{yesCnt}</span> yes</span>
             <span><span style={{color:T.rd}}>{noCnt}</span> no</span>
-            <span style={{color:T.mut2,marginLeft:"auto"}}>{showChecklist?"tap to hide ▾":"tap to open ▸"}</span>
+            <span style={{color:T.mut2,marginLeft:"auto"}}>tap to open →</span>
           </div>
         </div>
         {/* Matching plan */}
@@ -1043,13 +1043,6 @@ export default function App() {
           </div>
         )}
       </div>
-
-      {/* inline pre-trade checklist */}
-      {showChecklist && (
-        <div style={{border:T.rule1, padding:`${T.s[4]}px ${T.s[5]}px`, marginBottom:T.s[6]}}>
-          {renderChecklist()}
-        </div>
-      )}
 
       {/* instrument pills */}
       <div style={{marginBottom:T.s[5]}}>
