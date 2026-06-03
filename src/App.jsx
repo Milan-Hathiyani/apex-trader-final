@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0400";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0420";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -1705,9 +1705,9 @@ export default function App() {
         {/* §02 PERFORMANCE CALENDAR */}
         <Sec n="02" title="performance calendar" right={cal.monthName}/>
         <div style={{marginBottom:T.s[8]}}>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(7, 1fr) 1.3fr",gap:3,maxWidth:isMob?"100%":540}}>
+          <div style={{display:"grid",gridTemplateColumns:isMob?"repeat(7, 1fr)":"repeat(7, 1fr) 1.3fr",gap:isMob?2:3,maxWidth:isMob?"100%":540}}>
             {["S","M","T","W","T","F","S"].map((d,i) => <div key={"h"+i} style={{textAlign:"center",fontSize:T.size.tiny,color:T.mut,padding:T.s[1]}}>{d}</div>)}
-            <div style={{textAlign:"right",fontSize:T.size.tiny,color:T.mut,padding:T.s[1],alignSelf:"center"}}>week</div>
+            {!isMob && <div style={{textAlign:"right",fontSize:T.size.tiny,color:T.mut,padding:T.s[1],alignSelf:"center"}}>week</div>}
             {cal.weeks.flatMap((wk,wi) => [
               ...wk.cells.map((c,ci) => {
                 if (!c) return <div key={`e${wi}-${ci}`}/>;
@@ -1721,12 +1721,25 @@ export default function App() {
                   </div>
                 );
               }),
-              <div key={`tot${wi}`} style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"center",padding:`0 ${T.s[2]}px`,fontSize:T.size.tiny,fontFamily:"'JetBrains Mono', monospace",color: wk.trades ? (wk.total>=0?T.gr:T.rd) : T.mut2,borderLeft:T.rule1}}>
-                <span>{wk.trades ? fmt(wk.total) : "—"}</span>
-                {wk.trades>0 && <span style={{color:T.mut2,marginTop:2}}>{wk.trades}t</span>}
-              </div>
+              ...(isMob ? [] : [(
+                <div key={`tot${wi}`} style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"center",padding:`0 ${T.s[2]}px`,fontSize:T.size.tiny,fontFamily:"'JetBrains Mono', monospace",color: wk.trades ? (wk.total>=0?T.gr:T.rd) : T.mut2,borderLeft:T.rule1}}>
+                  <span>{wk.trades ? fmt(wk.total) : "—"}</span>
+                  {wk.trades>0 && <span style={{color:T.mut2,marginTop:2}}>{wk.trades}t</span>}
+                </div>
+              )]),
             ])}
           </div>
+          {isMob && cal.weeks.some(wk=>wk.trades>0) && (
+            <div style={{marginTop:T.s[4]}}>
+              <div style={{...sty.label,marginBottom:T.s[2]}}>weekly totals</div>
+              {cal.weeks.map((wk,wi) => wk.trades>0 ? (
+                <div key={wi} style={{display:"flex",justifyContent:"space-between",padding:`${T.s[2]}px 0`,borderBottom:T.rule1,fontSize:T.size.small}}>
+                  <span style={{color:T.mut}}>week {wi+1} · {wk.trades} trades</span>
+                  <span style={{fontFamily:"'JetBrains Mono', monospace",color:wk.total>=0?T.gr:T.rd}}>{fmt(wk.total)}</span>
+                </div>
+              ) : null)}
+            </div>
+          )}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",maxWidth:isMob?"100%":540,marginTop:T.s[4],paddingTop:T.s[3],borderTop:T.rule1}}>
             <span style={sty.label}>{cal.monthName} total · {cal.monthTrades} trades</span>
             <span style={{fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.body,color:cal.monthTotal>=0?T.gr:T.rd}}>{fmt(cal.monthTotal)}</span>
