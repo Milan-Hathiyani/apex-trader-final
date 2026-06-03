@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0310";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0330";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -2103,7 +2103,11 @@ export default function App() {
           </label>
         </div>
 
-        <Sec n="06" title="profile"/>
+        <Sec n="06" title="maintenance"/>
+        <button onClick={()=>{ if(confirm("Recompute charges for every trade from its entry/exit legs? Brokerage becomes ₹20 × number of logged orders (entries + exits).")){ pTrades(trades.map(t=>recomputeFromLegs(t))); alert("Recomputed charges for "+trades.length+" trades."); } }} style={{...sty.btn(), width:"100%"}}>recompute all charges</button>
+        <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[2]}}>uses each trade's logged entry + exit legs — so trades with multiple entries are counted as multiple orders</div>
+
+        <Sec n="07" title="profile"/>
         <button onClick={switchUser} style={{...sty.btn(), width:"100%"}}>switch profile</button>
 
         <div style={{marginTop:T.s[8]}}>
