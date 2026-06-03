@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0205";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0245";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -207,7 +207,7 @@ const applyCharges = (trade) => {
   const buyVal  = trade.direction==="Long" ? entry*size : exit*size;
   const sellVal = trade.direction==="Long" ? exit*size  : entry*size;
   const seg = trade.segment || detectSegment(trade.instrument, trade.setup);
-  const c   = calcCharges(buyVal, sellVal, seg, null, parseFloat(trade.orders)||0);
+  const c   = calcCharges(buyVal, sellVal, seg);
   if (!c) return trade;
   const gross = trade.direction==="Long" ? (exit-entry)*size : (entry-exit)*size;
   return {
@@ -293,7 +293,6 @@ const emptyTrade = (instr, setup, emo) => ({
   direction:"Long", tradeType:"Intraday", setup:setup||"", entry:"", sl:"", exitPrice:"", size:"",
   exitTime:"",            // optional exit time (entry time = `time`); enables holding-duration
   isOption:false, strike:"", optType:"CE", optSide:"Buy",   // options: strike, call/put, buy/sell
-  orders:"",              // executed-order count (optional) — brokerage = ₹20 × orders when set
   entries:[], exits:[],   // pyramiding + partial exits
   status:"open",
   riskAmount:"", grossPnl:"", pnl:"", brokerage:"", stt:"", txnCharges:"", sebi:"", gst:"", stamp:"", totalCharges:"",
@@ -345,7 +344,7 @@ const recomputeFromLegs = (t) => {
     const legVals = [...entries, ...exits]
       .map(l => (parseFloat(l.price)||0) * (parseFloat(l.size)||0))
       .filter(v => v > 0);
-    charges = calcCharges(buyVal, sellVal, seg, legVals, parseFloat(t.orders)||0);
+    charges = calcCharges(buyVal, sellVal, seg, legVals);
   }
   const totalCharges = charges?.totalCharges || 0;
 
@@ -445,6 +444,7 @@ export default function App() {
   const [editingReviewId, setEditingReviewId] = useState(null);
   const [expReview, setExpReview] = useState(null);   // expanded review id
   const [expWeek, setExpWeek]     = useState(null);   // expanded nested week id (inside monthly)
+  const [showChecklist, setShowChecklist] = useState(false); // inline checklist in journal
   const [analyticsView, setAnalyticsView] = useState("combined");
   const [settingsDraft, setSettingsDraft] = useState(DEFAULT_SETTINGS);
   const [settingsSaved, setSettingsSaved] = useState(false);
@@ -865,7 +865,6 @@ export default function App() {
     { key:"journal",   label:"journal",   short:"journal"},
     { key:"trades",    label:"trades",    short:"trades" },
     { key:"plans",     label:"trade plans",short:"plans" },
-    { key:"checklist", label:"checklist", short:"check"  },
     { key:"review",    label:"review",    short:"review" },
     { key:"analytics", label:"analytics", short:"stats"  },
   ];
@@ -1021,7 +1020,7 @@ export default function App() {
       {/* Pre-trade status banner: checklist + plan */}
       <div style={{display:"grid",gridTemplateColumns:matchingPlan?"1fr 1fr":"1fr",gap:T.s[3],marginBottom:T.s[6]}}>
         {/* Checklist status */}
-        <div onClick={()=>setTab("checklist")} style={{padding:T.s[4],border:T.rule1,cursor:"pointer"}}>
+        <div onClick={()=>setShowChecklist(v=>!v)} style={{padding:T.s[4],border:T.rule1,cursor:"pointer"}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline"}}>
             <span style={sty.label}>checklist</span>
             <span style={{color:pct>=80?T.gr:pct>=50?T.amb:T.mut,fontSize:T.size.h3,fontFamily:"'JetBrains Mono', monospace",fontWeight:T.weight.light}}>{pct}%</span>
@@ -1029,7 +1028,7 @@ export default function App() {
           <div style={{display:"flex",gap:T.s[3],marginTop:T.s[2],fontSize:T.size.tiny,color:T.mut}}>
             <span><span style={{color:T.gr}}>{yesCnt}</span> yes</span>
             <span><span style={{color:T.rd}}>{noCnt}</span> no</span>
-            <span style={{color:T.mut2,marginLeft:"auto"}}>tap to edit →</span>
+            <span style={{color:T.mut2,marginLeft:"auto"}}>{showChecklist?"tap to hide ▾":"tap to open ▸"}</span>
           </div>
         </div>
         {/* Matching plan */}
@@ -1044,6 +1043,13 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* inline pre-trade checklist */}
+      {showChecklist && (
+        <div style={{border:T.rule1, padding:`${T.s[4]}px ${T.s[5]}px`, marginBottom:T.s[6]}}>
+          {renderChecklist()}
+        </div>
+      )}
 
       {/* instrument pills */}
       <div style={{marginBottom:T.s[5]}}>
@@ -1085,6 +1091,28 @@ export default function App() {
         <Field label="type"><select style={sty.select} value={tf.tradeType} onChange={e=>setTf({...tf,tradeType:e.target.value})}>{tradeTypes.map(t=><option key={t}>{t}</option>)}</select></Field>
       </div>
 
+      {/* options — shown when an options segment is selected */}
+      {(tf.segment||"").includes("Options") && (
+        <div style={{marginBottom:T.s[5], border:T.rule1, padding:T.s[4]}}>
+          <div style={{...sty.label,marginBottom:T.s[3],color:T.amb}}>options · {tf.segment}</div>
+          <div style={{marginBottom:T.s[4]}}>
+            <Field label="strike"><input type="number" style={sty.input} value={tf.strike} onChange={e=>setTf({...tf,strike:e.target.value})}/></Field>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4]}}>
+            <Field label="type">
+              <div style={{display:"flex",gap:T.s[2]}}>
+                {["CE","PE"].map(o=><button key={o} onClick={()=>setTf({...tf,optType:o})} style={{flex:1,...sty.btn(),background:tf.optType===o?T.amb:"transparent",color:tf.optType===o?T.bg:T.text}}>{o}</button>)}
+              </div>
+            </Field>
+            <Field label="buy / sell">
+              <div style={{display:"flex",gap:T.s[2]}}>
+                {["Buy","Sell"].map(o=><button key={o} onClick={()=>setTf({...tf,optSide:o, direction:o==="Buy"?"Long":"Short"})} style={{flex:1,...sty.btn(),background:tf.optSide===o?(o==="Buy"?T.gr:T.rd)+"22":"transparent",color:tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.text,border:`1px solid ${tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.mut2}`}}>{o.toLowerCase()}</button>)}
+              </div>
+            </Field>
+          </div>
+        </div>
+      )}
+
       {/* prices */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
         <Field label="entry"><input type="number" style={sty.input} value={tf.entry} onChange={e=>updateTf({entry:e.target.value})}/></Field>
@@ -1092,10 +1120,9 @@ export default function App() {
         <Field label="exit (optional)"><input type="number" style={sty.input} value={tf.exitPrice} onChange={e=>updateTf({exitPrice:e.target.value})} placeholder="leave blank for open"/></Field>
       </div>
 
-      {/* size + orders */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
+      {/* size */}
+      <div style={{marginBottom:T.s[5]}}>
         <Field label="position size"><input type="number" style={sty.input} value={tf.size} onChange={e=>updateTf({size:e.target.value})}/></Field>
-        <Field label="executed orders"><input type="number" style={sty.input} value={tf.orders} onChange={e=>updateTf({orders:e.target.value})} placeholder="for exact brokerage"/></Field>
       </div>
 
       {/* live risk — approx loss if SL hit */}
@@ -1118,26 +1145,6 @@ export default function App() {
         <Field label="entry time"><input type="time" style={sty.input} value={tf.time||""} onChange={e=>setTf({...tf,time:e.target.value})}/></Field>
         <Field label="exit time"><input type="time" style={sty.input} value={tf.exitTime||""} onChange={e=>setTf({...tf,exitTime:e.target.value})} placeholder="for holding time"/></Field>
       </div>
-
-      {/* options — auto-shown when an options segment is selected */}
-      {(tf.segment||"").includes("Options") && (
-        <div style={{marginBottom:T.s[5]}}>
-          <div style={{...sty.label,marginBottom:T.s[3],color:T.amb}}>options · {tf.segment}</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4]}}>
-            <Field label="strike"><input type="number" style={sty.input} value={tf.strike} onChange={e=>setTf({...tf,strike:e.target.value})}/></Field>
-            <Field label="type">
-              <div style={{display:"flex",gap:T.s[2]}}>
-                {["CE","PE"].map(o=><button key={o} onClick={()=>setTf({...tf,optType:o})} style={{flex:1,...sty.btn(),background:tf.optType===o?T.amb:"transparent",color:tf.optType===o?T.bg:T.text}}>{o}</button>)}
-              </div>
-            </Field>
-            <Field label="buy / sell">
-              <div style={{display:"flex",gap:T.s[2]}}>
-                {["Buy","Sell"].map(o=><button key={o} onClick={()=>setTf({...tf,optSide:o, direction:o==="Buy"?"Long":"Short"})} style={{flex:1,...sty.btn(),background:tf.optSide===o?(o==="Buy"?T.gr:T.rd)+"22":"transparent",color:tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.text,border:`1px solid ${tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.mut2}`}}>{o.toLowerCase()}</button>)}
-              </div>
-            </Field>
-          </div>
-        </div>
-      )}
 
       {/* live preview */}
       {tf.entry && tf.exitPrice && tf.size && parseFloat(tf.totalCharges||0) > 0 && (
@@ -1371,6 +1378,16 @@ export default function App() {
                             <div style={{color:T.mut, fontSize:T.size.small, lineHeight:1.6}}>{v}</div>
                           </div>
                         ))}
+                      </div>
+                    )}
+
+                    {/* screenshot */}
+                    {t.screenshot && (
+                      <div style={{borderTop:T.rule1,paddingTop:T.s[4],marginBottom:T.s[4]}}>
+                        <label style={{...sty.label,color:T.amb,marginBottom:T.s[3],display:"block"}}>screenshot</label>
+                        <a href={t.screenshot} target="_blank" rel="noopener noreferrer">
+                          <img src={t.screenshot} alt="trade screenshot" style={{maxWidth:"100%",border:T.rule1,display:"block"}} onError={e=>{e.target.style.display="none";}}/>
+                        </a>
                       </div>
                     )}
 
@@ -2388,7 +2405,6 @@ export default function App() {
         <div style={{marginTop:T.s[6], paddingTop:T.s[4], borderTop:T.rule1}}>
           <div style={{...sty.label,marginBottom:T.s[3]}}>tools</div>
           {[
-            ["risk",      "risk calc"],
             ["customize", "customize"],
             ["settings",  "settings"],
           ].map(([k,l]) => (
@@ -2417,7 +2433,6 @@ export default function App() {
       case "journal":   return renderJournal();
       case "trades":    return renderTrades();
       case "plans":     return renderPlans();
-      case "checklist": return renderChecklist();
       case "review":    return renderReview();
       case "analytics": return renderAnalytics();
       default:          return renderDashboard();
@@ -2425,7 +2440,7 @@ export default function App() {
   };
 
   return (
-    <div style={{background:T.bg,minHeight:"100vh",color:T.text,fontFamily:"'JetBrains Mono', ui-monospace, monospace",fontWeight:T.weight.light,zoom:settings.textScale||1,width:"100%",maxWidth:"100vw",overflowX:"hidden"}}>
+    <div style={{background:T.bg,minHeight:"100vh",color:T.text,fontFamily:"'JetBrains Mono', ui-monospace, monospace",fontWeight:T.weight.light,zoom:settings.textScale||1,width:"100%",maxWidth:"100vw",overflowX:isMob?"hidden":"visible"}}>
       {!isMob ? (
         <div style={{display:"grid", gridTemplateColumns:"220px 1fr", minHeight:"100vh"}}>
           {renderSidebar()}
@@ -2460,7 +2475,6 @@ export default function App() {
             <div style={{position:"fixed",top:`calc(60px + env(safe-area-inset-top))`,left:0,right:0,background:T.bg,borderBottom:T.rule1,zIndex:49,padding:`${T.s[3]}px ${T.s[4]}px ${T.s[5]}px`,boxShadow:"0 10px 30px rgba(0,0,0,0.5)",maxHeight:"calc(100vh - 60px - env(safe-area-inset-top))",overflowY:"auto"}}>
               <div style={{...sty.label,marginBottom:T.s[3]}}>tools</div>
               {[
-                ["risk",      "risk calculator"],
                 ["customize", "customize"],
                 ["settings",  "settings"],
               ].map(([k,l]) => (
