@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0120";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0205";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -156,7 +156,7 @@ const detectSegment = (instrument, setup) => {
   return isOpt ? "F&O Options" : "F&O Futures";
 };
 
-const calcCharges = (buyVal, sellVal, segment, legVals) => {
+const calcCharges = (buyVal, sellVal, segment, legVals, orders) => {
   if (!buyVal || !sellVal) return null;
   const totalVal = buyVal + sellVal;
   const isOpt = segment.includes("Options");
@@ -165,6 +165,7 @@ const calcCharges = (buyVal, sellVal, segment, legVals) => {
 
   let brk;
   if (isDel) brk = 0;
+  else if (orders && orders > 0) brk = 20 * orders;   // explicit executed-order count: ₹20 per order
   else if (legVals && legVals.length) {
     // Zerodha bills brokerage PER executed order (₹20 or 0.03%, whichever lower), not per trade
     brk = isOpt ? 20 * legVals.length : legVals.reduce((s,v)=>s+Math.min(v*0.0003, 20), 0);
@@ -206,7 +207,7 @@ const applyCharges = (trade) => {
   const buyVal  = trade.direction==="Long" ? entry*size : exit*size;
   const sellVal = trade.direction==="Long" ? exit*size  : entry*size;
   const seg = trade.segment || detectSegment(trade.instrument, trade.setup);
-  const c   = calcCharges(buyVal, sellVal, seg);
+  const c   = calcCharges(buyVal, sellVal, seg, null, parseFloat(trade.orders)||0);
   if (!c) return trade;
   const gross = trade.direction==="Long" ? (exit-entry)*size : (entry-exit)*size;
   return {
@@ -292,6 +293,7 @@ const emptyTrade = (instr, setup, emo) => ({
   direction:"Long", tradeType:"Intraday", setup:setup||"", entry:"", sl:"", exitPrice:"", size:"",
   exitTime:"",            // optional exit time (entry time = `time`); enables holding-duration
   isOption:false, strike:"", optType:"CE", optSide:"Buy",   // options: strike, call/put, buy/sell
+  orders:"",              // executed-order count (optional) — brokerage = ₹20 × orders when set
   entries:[], exits:[],   // pyramiding + partial exits
   status:"open",
   riskAmount:"", grossPnl:"", pnl:"", brokerage:"", stt:"", txnCharges:"", sebi:"", gst:"", stamp:"", totalCharges:"",
@@ -343,7 +345,7 @@ const recomputeFromLegs = (t) => {
     const legVals = [...entries, ...exits]
       .map(l => (parseFloat(l.price)||0) * (parseFloat(l.size)||0))
       .filter(v => v > 0);
-    charges = calcCharges(buyVal, sellVal, seg, legVals);
+    charges = calcCharges(buyVal, sellVal, seg, legVals, parseFloat(t.orders)||0);
   }
   const totalCharges = charges?.totalCharges || 0;
 
@@ -1090,9 +1092,10 @@ export default function App() {
         <Field label="exit (optional)"><input type="number" style={sty.input} value={tf.exitPrice} onChange={e=>updateTf({exitPrice:e.target.value})} placeholder="leave blank for open"/></Field>
       </div>
 
-      {/* size */}
-      <div style={{marginBottom:T.s[5]}}>
+      {/* size + orders */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
         <Field label="position size"><input type="number" style={sty.input} value={tf.size} onChange={e=>updateTf({size:e.target.value})}/></Field>
+        <Field label="executed orders"><input type="number" style={sty.input} value={tf.orders} onChange={e=>updateTf({orders:e.target.value})} placeholder="for exact brokerage"/></Field>
       </div>
 
       {/* live risk — approx loss if SL hit */}
@@ -1129,7 +1132,7 @@ export default function App() {
             </Field>
             <Field label="buy / sell">
               <div style={{display:"flex",gap:T.s[2]}}>
-                {["Buy","Sell"].map(o=><button key={o} onClick={()=>setTf({...tf,optSide:o})} style={{flex:1,...sty.btn(),background:tf.optSide===o?(o==="Buy"?T.gr:T.rd)+"22":"transparent",color:tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.text,border:`1px solid ${tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.mut2}`}}>{o.toLowerCase()}</button>)}
+                {["Buy","Sell"].map(o=><button key={o} onClick={()=>setTf({...tf,optSide:o, direction:o==="Buy"?"Long":"Short"})} style={{flex:1,...sty.btn(),background:tf.optSide===o?(o==="Buy"?T.gr:T.rd)+"22":"transparent",color:tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.text,border:`1px solid ${tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.mut2}`}}>{o.toLowerCase()}</button>)}
               </div>
             </Field>
           </div>
@@ -2195,63 +2198,89 @@ export default function App() {
         <div style={{color:T.mut,fontSize:T.size.tiny,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{revExcerpt(r)}</div>
       </div>
     );
+    const fieldsView = (r) => RFIELDS.filter(([,k])=>r[k]).map(([l,k]) => (
+      <div key={k} style={{marginBottom:T.s[3]}}>
+        <div style={sty.label}>{l}</div>
+        <div style={{color:T.mut,fontSize:T.size.small,lineHeight:1.6}}>{r[k]}</div>
+      </div>
+    ));
+    const editDelBtns = (r) => (
+      <div style={{display:"flex",gap:T.s[2],marginBottom:T.s[3]}}>
+        <button onClick={(e)=>{e.stopPropagation();startEditReview(r);}} style={{background:"transparent",color:T.amb,border:`1px solid ${T.amb}`,padding:`${T.s[2]}px ${T.s[4]}px`,fontSize:T.size.small,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace"}}>edit</button>
+        <button onClick={(e)=>{e.stopPropagation();if(confirm("Delete this review?"))delReview(r.id);}} style={{background:"transparent",color:T.rd,border:`1px solid ${T.rd}`,padding:`${T.s[2]}px ${T.s[4]}px`,fontSize:T.size.small,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace"}}>delete</button>
+      </div>
+    );
     const reviewCard = (r) => {
       const open = expReview === r.id;
       return (
         <div key={r.id} style={{padding:`${T.s[3]}px 0`, borderBottom:T.rule1}}>
           <div onClick={()=>setExpReview(open?null:r.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
-            <div>
-              <span style={{color:T.text,fontSize:T.size.body}}>{r.date}</span>
-              <span style={{color:T.mut2,fontSize:T.size.tiny,marginLeft:T.s[2]}}>{revWeekday(r.date)}</span>
-            </div>
-            <div style={{display:"flex",gap:T.s[3],alignItems:"center"}}>
-              <span style={{color:T.amb,fontSize:T.size.small}}>{r.mentalState?.toLowerCase()}</span>
-              <span style={{color:T.mut2,fontSize:T.size.small}}>{open?"▾":"▸"}</span>
-            </div>
+            <div><span style={{color:T.text,fontSize:T.size.body}}>{r.date}</span><span style={{color:T.mut2,fontSize:T.size.tiny,marginLeft:T.s[2]}}>{revWeekday(r.date)}</span></div>
+            <div style={{display:"flex",gap:T.s[3],alignItems:"center"}}><span style={{color:T.amb,fontSize:T.size.small}}>{r.mentalState?.toLowerCase()}</span><span style={{color:T.mut2,fontSize:T.size.small}}>{open?"▾":"▸"}</span></div>
           </div>
           {!open && <div style={{color:T.mut,fontSize:T.size.small,marginTop:T.s[1],overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{revExcerpt(r)}</div>}
+          {open && <div style={{marginTop:T.s[3]}}>{fieldsView(r)}{editDelBtns(r)}</div>}
+        </div>
+      );
+    };
+    // weekly tab: group all daily + weekly reviews by week (Mon-start)
+    const weekBlock = (g) => {
+      const open = expReview === ("wk-"+g.week);
+      return (
+        <div key={g.week} style={{padding:`${T.s[3]}px 0`, borderBottom:T.rule1}}>
+          <div onClick={()=>setExpReview(open?null:("wk-"+g.week))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+            <span style={{color:T.text,fontSize:T.size.body}}>week of {g.week}</span>
+            <span style={{color:T.mut2,fontSize:T.size.small}}>{g.dailies.length} daily{g.review?" · ✓":""} {open?"▾":"▸"}</span>
+          </div>
           {open && (
             <div style={{marginTop:T.s[3]}}>
-              {RFIELDS.filter(([,k])=>r[k]).map(([l,k]) => (
-                <div key={k} style={{marginBottom:T.s[3]}}>
-                  <div style={sty.label}>{l}</div>
-                  <div style={{color:T.mut,fontSize:T.size.small,lineHeight:1.6}}>{r[k]}</div>
-                </div>
-              ))}
-              <div style={{display:"flex",gap:T.s[2],marginBottom:T.s[3]}}>
-                <button onClick={(e)=>{e.stopPropagation();startEditReview(r);}} style={{background:"transparent",color:T.amb,border:`1px solid ${T.amb}`,padding:`${T.s[2]}px ${T.s[4]}px`,fontSize:T.size.small,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace"}}>edit</button>
-                <button onClick={(e)=>{e.stopPropagation();if(confirm("Delete this review?"))delReview(r.id);}} style={{background:"transparent",color:T.rd,border:`1px solid ${T.rd}`,padding:`${T.s[2]}px ${T.s[4]}px`,fontSize:T.size.small,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace"}}>delete</button>
-              </div>
-              {r.period==="weekly" && (() => {
-                const kids = reviews.filter(x=>x.period==="daily" && revWeekStart(x.date)===revWeekStart(r.date)).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-                return kids.length
-                  ? <div style={{marginTop:T.s[3],paddingLeft:T.s[4],borderLeft:T.rule1}}><div style={{...sty.label,marginBottom:T.s[2]}}>daily reviews this week · {kids.length}</div>{kids.map(reviewMini)}</div>
-                  : <div style={{color:T.mut2,fontSize:T.size.tiny,paddingLeft:T.s[4],marginTop:T.s[2]}}>no daily reviews logged this week</div>;
-              })()}
-              {r.period==="monthly" && (() => {
-                const wks = reviews.filter(x=>x.period==="weekly" && revMonthKey(x.date)===revMonthKey(r.date)).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-                return wks.length
-                  ? <div style={{marginTop:T.s[3],paddingLeft:T.s[4],borderLeft:T.rule1}}><div style={{...sty.label,marginBottom:T.s[2]}}>weekly reviews this month · {wks.length}</div>{wks.map(w => {
-                      const wo = expWeek===w.id;
-                      const kids = reviews.filter(x=>x.period==="daily" && revWeekStart(x.date)===revWeekStart(w.date)).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-                      return (
-                        <div key={w.id} style={{marginBottom:T.s[2]}}>
-                          <div onClick={(e)=>{e.stopPropagation();setExpWeek(wo?null:w.id);}} style={{display:"flex",justifyContent:"space-between",cursor:"pointer"}}>
-                            <span style={{color:T.text,fontSize:T.size.small}}>week of {w.date}</span>
-                            <span style={{color:T.mut2,fontSize:T.size.tiny}}>{wo?"▾":"▸"} {kids.length} daily</span>
-                          </div>
-                          <div style={{color:T.mut,fontSize:T.size.tiny,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{revExcerpt(w)}</div>
-                          {wo && (kids.length ? <div style={{paddingLeft:T.s[3],marginTop:T.s[1]}}>{kids.map(reviewMini)}</div> : <div style={{color:T.mut2,fontSize:T.size.tiny,paddingLeft:T.s[3]}}>no daily reviews this week</div>)}
-                        </div>
-                      );
-                    })}</div>
-                  : <div style={{color:T.mut2,fontSize:T.size.tiny,paddingLeft:T.s[4],marginTop:T.s[2]}}>no weekly reviews logged this month</div>;
-              })()}
+              {g.review
+                ? <div style={{marginBottom:T.s[3]}}><div style={{...sty.label,color:T.amb,marginBottom:T.s[2]}}>weekly review</div>{fieldsView(g.review)}{editDelBtns(g.review)}</div>
+                : <div style={{color:T.mut2,fontSize:T.size.tiny,marginBottom:T.s[3]}}>no weekly review written — add one in the form above</div>}
+              <div style={{...sty.label,marginBottom:T.s[2]}}>daily reviews this week · {g.dailies.length}</div>
+              {g.dailies.length ? g.dailies.map(reviewMini) : <div style={{color:T.mut2,fontSize:T.size.tiny}}>no daily reviews this week</div>}
             </div>
           )}
         </div>
       );
     };
+    // monthly tab: group by month → weeks → dailies
+    const monthBlock = (g) => {
+      const open = expReview === ("mo-"+g.month);
+      return (
+        <div key={g.month} style={{padding:`${T.s[3]}px 0`, borderBottom:T.rule1}}>
+          <div onClick={()=>setExpReview(open?null:("mo-"+g.month))} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+            <span style={{color:T.text,fontSize:T.size.body}}>{g.month}</span>
+            <span style={{color:T.mut2,fontSize:T.size.small}}>{g.weeks.length} wk{g.review?" · ✓":""} {open?"▾":"▸"}</span>
+          </div>
+          {open && (
+            <div style={{marginTop:T.s[3]}}>
+              {g.review
+                ? <div style={{marginBottom:T.s[3]}}><div style={{...sty.label,color:T.amb,marginBottom:T.s[2]}}>monthly review</div>{fieldsView(g.review)}{editDelBtns(g.review)}</div>
+                : <div style={{color:T.mut2,fontSize:T.size.tiny,marginBottom:T.s[3]}}>no monthly review written yet</div>}
+              {g.weeks.map(w => {
+                const wo = expWeek === ("mw-"+w.week);
+                return (
+                  <div key={w.week} style={{marginBottom:T.s[2],paddingLeft:T.s[3],borderLeft:T.rule1}}>
+                    <div onClick={(e)=>{e.stopPropagation();setExpWeek(wo?null:("mw-"+w.week));}} style={{display:"flex",justifyContent:"space-between",cursor:"pointer"}}>
+                      <span style={{color:T.text,fontSize:T.size.small}}>week of {w.week}{w.review?" · ✓":""}</span>
+                      <span style={{color:T.mut2,fontSize:T.size.tiny}}>{wo?"▾":"▸"} {w.dailies.length} daily</span>
+                    </div>
+                    {wo && <div style={{marginTop:T.s[1]}}>{w.review && <div style={{marginBottom:T.s[2]}}>{fieldsView(w.review)}{editDelBtns(w.review)}</div>}{w.dailies.length ? w.dailies.map(reviewMini) : <div style={{color:T.mut2,fontSize:T.size.tiny}}>no daily reviews</div>}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    };
+    const weekGroups = [...new Set(reviews.filter(r=>r.period==="daily"||r.period==="weekly").map(r=>revWeekStart(r.date)))].filter(Boolean).sort((a,b)=>b.localeCompare(a))
+      .map(wk => ({ week:wk, review:reviews.find(r=>r.period==="weekly"&&revWeekStart(r.date)===wk), dailies:reviews.filter(r=>r.period==="daily"&&revWeekStart(r.date)===wk).sort((a,b)=>(a.date||"").localeCompare(b.date||"")) }));
+    const monthGroups = [...new Set(reviews.map(r=>revMonthKey(r.date)))].filter(Boolean).sort((a,b)=>b.localeCompare(a))
+      .map(mk => ({ month:mk, review:reviews.find(r=>r.period==="monthly"&&revMonthKey(r.date)===mk),
+        weeks:[...new Set(reviews.filter(r=>(r.period==="daily"||r.period==="weekly")&&revMonthKey(r.date)===mk).map(r=>revWeekStart(r.date)))].filter(Boolean).sort((a,b)=>b.localeCompare(a))
+          .map(wk=>({ week:wk, review:reviews.find(r=>r.period==="weekly"&&revWeekStart(r.date)===wk), dailies:reviews.filter(r=>r.period==="daily"&&revWeekStart(r.date)===wk).sort((a,b)=>(a.date||"").localeCompare(b.date||"")) })) }));
     return (
       <div>
         <div style={{display:"flex",gap:T.s[2],marginBottom:T.s[6]}}>
@@ -2260,45 +2289,46 @@ export default function App() {
           ))}
         </div>
 
-        <Sec n="01" title={editingReviewId ? `editing ${reviewTab} review` : `new ${reviewTab} review`} right={editingReviewId?"editing":undefined}/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[4]}}>
-          <Field label="date"><input type="date" style={sty.input} value={rf.date||""} onChange={e=>setRf({...rf,date:e.target.value})}/></Field>
-          <Field label="day"><input readOnly tabIndex={-1} style={{...sty.input,color:T.mut}} value={revWeekday(rf.date)}/></Field>
-        </div>
-        <Field label="mental state">
-          <div style={{display:"flex",gap:T.s[2],flexWrap:"wrap"}}>
-            {MENTAL.map(m => (
-              <button key={m} onClick={()=>setRf({...rf,mentalState:m})} style={{...sty.btn(), background:rf.mentalState===m?T.amb:"transparent", color:rf.mentalState===m?T.bg:T.text}}>{m.toLowerCase()}</button>
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:isMob?T.s[8]:T.s[10], alignItems:"start"}}>
+          <div>
+            <Sec n="01" title={editingReviewId ? `editing ${reviewTab} review` : `new ${reviewTab} review`} right={editingReviewId?"editing":undefined}/>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[4]}}>
+              <Field label="date"><input type="date" style={sty.input} value={rf.date||""} onChange={e=>setRf({...rf,date:e.target.value})}/></Field>
+              <Field label="day"><input readOnly tabIndex={-1} style={{...sty.input,color:T.mut}} value={revWeekday(rf.date)}/></Field>
+            </div>
+            <Field label="mental state">
+              <div style={{display:"flex",gap:T.s[2],flexWrap:"wrap"}}>
+                {MENTAL.map(m => (
+                  <button key={m} onClick={()=>setRf({...rf,mentalState:m})} style={{...sty.btn(), background:rf.mentalState===m?T.amb:"transparent", color:rf.mentalState===m?T.bg:T.text}}>{m.toLowerCase()}</button>
+                ))}
+              </div>
+            </Field>
+
+            {RFIELDS.map(([label,key]) => (
+              <div key={key} style={{marginTop:T.s[4]}}>
+                <Field label={label}><textarea style={sty.textarea} value={rf[key]} onChange={e=>setRf({...rf,[key]:e.target.value})}/></Field>
+              </div>
             ))}
-          </div>
-        </Field>
 
-        {[
-          ["what went well","whatWentWell"],
-          ["mistakes","mistakes"],
-          ["missed setups","missedSetups"],
-          ["rules followed","rulesFollowed"],
-          ["emotional trading","emotionalTrading"],
-          ["regrets","regrets"],
-          ["improvements","improvements"],
-          ["self coaching","selfCoaching"],
-        ].map(([label,key]) => (
-          <div key={key} style={{marginTop:T.s[4]}}>
-            <Field label={label}><textarea style={sty.textarea} value={rf[key]} onChange={e=>setRf({...rf,[key]:e.target.value})}/></Field>
+            <div style={{display:"flex",gap:T.s[3],marginTop:T.s[6]}}>
+              <button onClick={logReview} style={{...sty.btn("primary"), flex:1}}>{editingReviewId ? "update review" : "save review"}</button>
+              <button onClick={editingReviewId ? cancelEditReview : ()=>setRf(emptyReview(reviewTab))} style={{...sty.btn(), flex:1}}>{editingReviewId ? "cancel" : "clear"}</button>
+            </div>
           </div>
-        ))}
 
-        <div style={{display:"flex",gap:T.s[3],marginTop:T.s[6]}}>
-          <button onClick={logReview} style={{...sty.btn("primary"), flex:1}}>{editingReviewId ? "update review" : "save review"}</button>
-          <button onClick={editingReviewId ? cancelEditReview : ()=>setRf(emptyReview(reviewTab))} style={{...sty.btn(), flex:1}}>{editingReviewId ? "cancel" : "clear"}</button>
+          <div>
+            {(() => {
+              if (reviewTab==="daily") {
+                const list = reviews.filter(r=>r.period==="daily").sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+                return list.length ? <><Sec n="02" title="past daily reviews" right={`${list.length}`}/>{list.map(reviewCard)}</> : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[6]}px 0`}}>no daily reviews yet</div>;
+              }
+              if (reviewTab==="weekly") {
+                return weekGroups.length ? <><Sec n="02" title="by week" right={`${weekGroups.length} weeks`}/>{weekGroups.map(weekBlock)}</> : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[6]}px 0`}}>no reviews yet — log a daily or weekly review to see weeks here</div>;
+              }
+              return monthGroups.length ? <><Sec n="02" title="by month" right={`${monthGroups.length} months`}/>{monthGroups.map(monthBlock)}</> : <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[6]}px 0`}}>no reviews yet</div>;
+            })()}
+          </div>
         </div>
-
-        {reviews.filter(r=>r.period===reviewTab).length > 0 && (
-          <>
-            <Sec n="02" title={`past ${reviewTab} reviews`} right={`${reviews.filter(r=>r.period===reviewTab).length}`}/>
-            {reviews.filter(r=>r.period===reviewTab).sort((a,b)=>(b.date||"").localeCompare(a.date||"")).map(reviewCard)}
-          </>
-        )}
       </div>
     );
   };
