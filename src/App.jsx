@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0245";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0310";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -2212,13 +2212,13 @@ export default function App() {
             <button onClick={(e)=>{e.stopPropagation();startEditReview(r);}} style={{background:"transparent",color:T.mut,border:"none",cursor:"pointer",fontSize:T.size.tiny,fontFamily:"'JetBrains Mono', monospace"}}>edit</button>
           </div>
         </div>
-        <div style={{color:T.mut,fontSize:T.size.tiny,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{revExcerpt(r)}</div>
+        <div style={{color:T.mut,fontSize:T.size.tiny,marginTop:2,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",overflowWrap:"anywhere"}}>{revExcerpt(r)}</div>
       </div>
     );
     const fieldsView = (r) => RFIELDS.filter(([,k])=>r[k]).map(([l,k]) => (
       <div key={k} style={{marginBottom:T.s[3]}}>
         <div style={sty.label}>{l}</div>
-        <div style={{color:T.mut,fontSize:T.size.small,lineHeight:1.6}}>{r[k]}</div>
+        <div style={{color:T.mut,fontSize:T.size.small,lineHeight:1.6,overflowWrap:"anywhere",whiteSpace:"pre-wrap"}}>{r[k]}</div>
       </div>
     ));
     const editDelBtns = (r) => (
@@ -2235,7 +2235,7 @@ export default function App() {
             <div><span style={{color:T.text,fontSize:T.size.body}}>{r.date}</span><span style={{color:T.mut2,fontSize:T.size.tiny,marginLeft:T.s[2]}}>{revWeekday(r.date)}</span></div>
             <div style={{display:"flex",gap:T.s[3],alignItems:"center"}}><span style={{color:T.amb,fontSize:T.size.small}}>{r.mentalState?.toLowerCase()}</span><span style={{color:T.mut2,fontSize:T.size.small}}>{open?"▾":"▸"}</span></div>
           </div>
-          {!open && <div style={{color:T.mut,fontSize:T.size.small,marginTop:T.s[1],overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{revExcerpt(r)}</div>}
+          {!open && <div style={{color:T.mut,fontSize:T.size.small,marginTop:T.s[1],display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",overflowWrap:"anywhere"}}>{revExcerpt(r)}</div>}
           {open && <div style={{marginTop:T.s[3]}}>{fieldsView(r)}{editDelBtns(r)}</div>}
         </div>
       );
@@ -2306,8 +2306,8 @@ export default function App() {
           ))}
         </div>
 
-        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"1fr 1fr", gap:isMob?T.s[8]:T.s[10], alignItems:"start"}}>
-          <div>
+        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"3fr 2fr", gap:isMob?T.s[8]:T.s[10], alignItems:"start"}}>
+          <div style={{minWidth:0}}>
             <Sec n="01" title={editingReviewId ? `editing ${reviewTab} review` : `new ${reviewTab} review`} right={editingReviewId?"editing":undefined}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[4]}}>
               <Field label="date"><input type="date" style={sty.input} value={rf.date||""} onChange={e=>setRf({...rf,date:e.target.value})}/></Field>
@@ -2333,7 +2333,7 @@ export default function App() {
             </div>
           </div>
 
-          <div>
+          <div style={{minWidth:0}}>
             {(() => {
               if (reviewTab==="daily") {
                 const list = reviews.filter(r=>r.period==="daily").sort((a,b)=>(b.date||"").localeCompare(a.date||""));
