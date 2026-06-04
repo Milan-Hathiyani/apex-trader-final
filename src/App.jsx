@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0640";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0700";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -318,6 +318,7 @@ const emptyTrade = (instr, setup, emo) => ({
   exitDate:"",            // date the trade was closed (P&L is attributed to this day, not the entry day)
   isOption:false, strike:"", optType:"CE", optSide:"Buy",   // options: strike, call/put, buy/sell
   entries:[], exits:[],   // pyramiding + partial exits
+  entryLegs:[], exitLegs:[],  // extra orders staged in the journal form (combined into entries/exits on log)
   status:"open",
   riskAmount:"", grossPnl:"", pnl:"", brokerage:"", stt:"", txnCharges:"", sebi:"", gst:"", stamp:"", totalCharges:"",
   rrAchieved:"", grade:"A", followedRules:"Yes", emotion:emo||"Calm", mistakes:"", improvements:"", notes:"",
@@ -623,8 +624,10 @@ export default function App() {
     const matchPlan = plans.find(p => p.status === "open" && p.instrument === tf.instrument);
     const tradeId = Date.now();
     // Materialize initial legs from the simple form fields
-    const initialEntries = tf.entry ? [{ price: tf.entry, size: tf.size||"0", time: tf.time||nowT(), note: "" }] : [];
-    const initialExits   = isClosed ? [{ price: tf.exitPrice, size: tf.size||"0", time: tf.exitTime||nowT(), note: "" }] : [];
+    const extraE = (tf.entryLegs||[]).filter(l=>l.price&&l.size).map(l=>({ price:String(l.price), size:String(l.size), time: tf.time||nowT(), note:"" }));
+    const extraX = (tf.exitLegs ||[]).filter(l=>l.price&&l.size).map(l=>({ price:String(l.price), size:String(l.size), time: tf.exitTime||tf.time||nowT(), note:"" }));
+    const initialEntries = [ ...(tf.entry ? [{ price: tf.entry, size: tf.size||"0", time: tf.time||nowT(), note: "" }] : []), ...extraE ];
+    const initialExits   = [ ...(isClosed ? [{ price: tf.exitPrice, size: tf.size||"0", time: tf.exitTime||nowT(), note: "" }] : []), ...extraX ];
     const base = {
       ...tf, id: tradeId, status,
       exitDate: isClosed ? (tf.exitDate || tf.date || today()) : "",
@@ -1161,6 +1164,41 @@ export default function App() {
         <Field label="position size"><input type="number" style={sty.input} value={tf.size} onChange={e=>updateTf({size:e.target.value})}/></Field>
       </div>
 
+      {/* extra orders — log each fill for exact brokerage (₹20 per order) */}
+      {!editingTradeId && (
+        <div style={{border:`1px solid ${T.mut2}`, padding:`${T.s[4]}px ${T.s[5]}px`, marginBottom:T.s[5]}}>
+          <div style={{...sty.label, color:T.amb}}>extra orders</div>
+          <div style={{color:T.mut2, fontSize:T.size.tiny, margin:`${T.s[2]}px 0 ${T.s[3]}px`, lineHeight:1.5}}>your entry + exit above already count as 2 orders. if you scaled in or out, add each additional fill here — brokerage is ₹20 per order.</div>
+          <div style={{display:"grid", gridTemplateColumns:isMob?"1fr":"1fr 1fr", gap:T.s[5]}}>
+            <div>
+              <div style={{...sty.label, color:T.gr, fontSize:T.size.tiny, marginBottom:T.s[2]}}>extra entries</div>
+              {(tf.entryLegs||[]).map((l,i)=>(
+                <div key={i} style={{display:"flex",gap:T.s[2],marginBottom:T.s[2],alignItems:"center"}}>
+                  <input type="number" placeholder="price" value={l.price} onChange={e=>{const a=[...tf.entryLegs]; a[i]={...a[i],price:e.target.value}; setTf({...tf,entryLegs:a});}} style={{...sty.input,padding:`${T.s[2]}px ${T.s[3]}px`}}/>
+                  <input type="number" placeholder="size" value={l.size} onChange={e=>{const a=[...tf.entryLegs]; a[i]={...a[i],size:e.target.value}; setTf({...tf,entryLegs:a});}} style={{...sty.input,padding:`${T.s[2]}px ${T.s[3]}px`}}/>
+                  <button onClick={()=>setTf({...tf,entryLegs:tf.entryLegs.filter((_,j)=>j!==i)})} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",fontSize:16,padding:0}}>×</button>
+                </div>
+              ))}
+              <button onClick={()=>setTf({...tf,entryLegs:[...(tf.entryLegs||[]),{price:"",size:""}]})} style={{...sty.btn(),width:"100%",borderColor:T.gr,color:T.gr,fontSize:T.size.tiny}}>+ entry order</button>
+            </div>
+            <div>
+              <div style={{...sty.label, color:T.rd, fontSize:T.size.tiny, marginBottom:T.s[2]}}>extra exits</div>
+              {(tf.exitLegs||[]).map((l,i)=>(
+                <div key={i} style={{display:"flex",gap:T.s[2],marginBottom:T.s[2],alignItems:"center"}}>
+                  <input type="number" placeholder="price" value={l.price} onChange={e=>{const a=[...tf.exitLegs]; a[i]={...a[i],price:e.target.value}; setTf({...tf,exitLegs:a});}} style={{...sty.input,padding:`${T.s[2]}px ${T.s[3]}px`}}/>
+                  <input type="number" placeholder="size" value={l.size} onChange={e=>{const a=[...tf.exitLegs]; a[i]={...a[i],size:e.target.value}; setTf({...tf,exitLegs:a});}} style={{...sty.input,padding:`${T.s[2]}px ${T.s[3]}px`}}/>
+                  <button onClick={()=>setTf({...tf,exitLegs:tf.exitLegs.filter((_,j)=>j!==i)})} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",fontSize:16,padding:0}}>×</button>
+                </div>
+              ))}
+              <button onClick={()=>setTf({...tf,exitLegs:[...(tf.exitLegs||[]),{price:"",size:""}]})} style={{...sty.btn(),width:"100%",borderColor:T.rd,color:T.rd,fontSize:T.size.tiny}}>+ exit order</button>
+            </div>
+          </div>
+          <div style={{color:T.mut, fontSize:T.size.tiny, marginTop:T.s[3], borderTop:T.rule1, paddingTop:T.s[2]}}>
+            {(tf.entry?1:0)+(tf.exitPrice?1:0)+(tf.entryLegs||[]).filter(l=>l.price&&l.size).length+(tf.exitLegs||[]).filter(l=>l.price&&l.size).length} orders · est. brokerage <span style={{color:T.text,fontFamily:"'JetBrains Mono', monospace"}}>₹{20*((tf.entry?1:0)+(tf.exitPrice?1:0)+(tf.entryLegs||[]).filter(l=>l.price&&l.size).length+(tf.exitLegs||[]).filter(l=>l.price&&l.size).length)}</span>
+          </div>
+        </div>
+      )}
+
       {/* live risk — approx loss if SL hit */}
       {riskVal != null && (
         <div style={{border:`1px solid ${T.rd}`, padding:`${T.s[4]}px ${T.s[5]}px`, marginBottom:T.s[5], display:"flex", justifyContent:"space-between", alignItems:"center", gap:T.s[4]}}>
@@ -1394,7 +1432,7 @@ export default function App() {
                         {showCharges && (
                           <div style={{marginTop:T.s[3]}}>
                             {[
-                              ["brokerage",    t.brokerage],
+                              [`brokerage · ${(t.entries?.length||0)+(t.exits?.length||0)} orders`, t.brokerage],
                               ["STT",          t.stt],
                               ["exchange txn", t.txnCharges],
                               ["SEBI",         t.sebi],
@@ -1509,12 +1547,13 @@ export default function App() {
                       const openSize = totalEntrySize - totalExitSize;
                       return (
                         <div style={{borderTop:T.rule1,paddingTop:T.s[5],marginBottom:T.s[5]}}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:T.s[3]}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:T.s[2]}}>
                             <span style={{...sty.label,color:T.amb}}>position legs</span>
                             <span style={{color:T.mut,fontSize:T.size.small,fontFamily:"'JetBrains Mono', monospace"}}>
                               filled <span style={{color:T.gr}}>{totalEntrySize}</span> · closed <span style={{color:T.rd}}>{totalExitSize}</span> · open <span style={{color:t.status==="open"||t.status==="partial"?T.amb:T.mut}}>{openSize}</span>
                             </span>
                           </div>
+                          <div style={{color:T.mut2,fontSize:T.size.tiny,marginBottom:T.s[3],lineHeight:1.5}}>each fill is one order = ₹20 brokerage. add every buy/sell here and charges update automatically · {entries.length + exits.length} orders so far</div>
 
                           {/* Entries table */}
                           {entries.length > 0 && (
