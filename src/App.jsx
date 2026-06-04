@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0620";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0640";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -481,6 +481,7 @@ export default function App() {
   const [fInstr,      setFInstr]      = useState("All");
   const [fDir,        setFDir]        = useState("All");
   const [expanded,    setExpanded]    = useState(null);
+  const [expCharges,  setExpCharges]  = useState(null);  // collapsible charges breakdown per trade
 
   // ── risk calc state ──────────────────────────────────────
   const [rc, setRc] = useState({ entry:"", sl:"", rr:"2", riskType:"base", segment:"F&O Futures", instrument:"" });
@@ -1381,30 +1382,36 @@ export default function App() {
                       ))}
                     </div>
 
-                    {/* charges breakdown */}
-                    {parseFloat(t.totalCharges||0) > 0 && (
+                    {/* charges — total only; tap to expand the breakdown */}
+                    {parseFloat(t.totalCharges||0) > 0 && (() => {
+                      const showCharges = expCharges === t.id;
+                      return (
                       <div style={{borderTop:T.rule1,paddingTop:T.s[4],marginBottom:T.s[6]}}>
-                        <div style={{...sty.label,color:T.amb,marginBottom:T.s[3]}}>charges breakdown</div>
-                        {[
-                          ["brokerage",    t.brokerage],
-                          ["STT",          t.stt],
-                          ["exchange txn", t.txnCharges],
-                          ["SEBI",         t.sebi],
-                          ["GST (18%)",    t.gst],
-                          ["stamp duty",   t.stamp],
-                        ].map(([l,v]) => (
-                          <div key={l} style={{display:"flex",justifyContent:"space-between",padding:`${T.s[1]}px 0`,fontSize:T.size.small,color:T.mut}}>
-                            <span>{l}</span>
-                            <span style={{fontFamily:"'JetBrains Mono', monospace",color:T.text}}>{v?fmt2(parseFloat(v)):"—"}</span>
-                          </div>
-                        ))}
-                        <div style={{display:"flex",justifyContent:"space-between",padding:`${T.s[2]}px 0`,marginTop:T.s[1],borderTop:T.rule1,fontSize:T.size.small}}>
-                          <span style={{color:T.text}}>total charges</span>
-                          <span style={{fontFamily:"'JetBrains Mono', monospace",color:T.rd}}>{fmt2(parseFloat(t.totalCharges))}</span>
+                        <div onClick={()=>setExpCharges(showCharges?null:t.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+                          <span style={{...sty.label,color:T.amb}}>total charges <span style={{color:T.mut2}}>{showCharges?"▾":"▸"}</span></span>
+                          <span style={{fontFamily:"'JetBrains Mono', monospace",color:T.rd,fontSize:T.size.small}}>{fmt2(parseFloat(t.totalCharges))}</span>
                         </div>
-                        <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[2],lineHeight:1.5}}>options STT 0.15% on sell premium · futures STT 0.05% · brokerage ₹20 per order · values use premium × qty</div>
+                        {showCharges && (
+                          <div style={{marginTop:T.s[3]}}>
+                            {[
+                              ["brokerage",    t.brokerage],
+                              ["STT",          t.stt],
+                              ["exchange txn", t.txnCharges],
+                              ["SEBI",         t.sebi],
+                              ["GST (18%)",    t.gst],
+                              ["stamp duty",   t.stamp],
+                            ].map(([l,v]) => (
+                              <div key={l} style={{display:"flex",justifyContent:"space-between",padding:`${T.s[1]}px 0`,fontSize:T.size.small,color:T.mut}}>
+                                <span>{l}</span>
+                                <span style={{fontFamily:"'JetBrains Mono', monospace",color:T.text}}>{v?fmt2(parseFloat(v)):"—"}</span>
+                              </div>
+                            ))}
+                            <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[2],lineHeight:1.5}}>options STT 0.15% on sell premium · futures STT 0.05% · brokerage ₹20 per order · values use premium × qty</div>
+                          </div>
+                        )}
                       </div>
-                    )}
+                      );
+                    })()}
 
                     {/* Linked plan */}
                     {t.planId && plans.find(p=>p.id===t.planId) && (() => {
@@ -2496,7 +2503,7 @@ export default function App() {
      LAYOUT
   ──────────────────────────────────────────────────────── */
   const renderSidebar = () => (
-    <aside style={{borderRight:T.rule1, padding:`${T.s[8]}px ${T.s[6]}px ${T.s[6]}px`, display:"flex", flexDirection:"column", background:T.bg, position:"fixed", top:0, left:0, width:220, boxSizing:"border-box", height:"100vh", overflow:"hidden", zIndex:40}}>
+    <aside style={{borderRight:T.rule1, padding:`${T.s[8]}px ${T.s[6]}px ${T.s[6]}px`, display:"flex", flexDirection:"column", background:T.bg, position:"fixed", top:0, left:0, width:220, boxSizing:"border-box", height:`calc(100vh / ${settings.textScale||1})`, overflow:"hidden", zIndex:40}}>
       <div style={{flexShrink:0}}>
         <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em"}}>trading journal</div>
         <div style={{fontSize:T.size.h1,fontWeight:T.weight.thin,letterSpacing:"-.02em",marginTop:T.s[2],color:T.text}}>Top 1%</div>
