@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0700";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0720";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -232,11 +232,12 @@ const applyCharges = (trade) => {
   const c   = calcCharges(buyVal, sellVal, seg);
   if (!c) return trade;
   const gross = trade.direction==="Long" ? (exit-entry)*size : (entry-exit)*size;
+  const oc = parseFloat(trade.actualCharges) > 0 ? parseFloat(trade.actualCharges) : c.totalCharges;
   return {
     ...trade, segment:seg, grossPnl:String(+gross.toFixed(2)),
-    pnl:String(+(gross - c.totalCharges).toFixed(2)),
+    pnl:String(+(gross - oc).toFixed(2)),
     brokerage:String(c.brokerage), stt:String(c.stt), txnCharges:String(c.txnCharges),
-    sebi:String(c.sebi), gst:String(c.gst), stamp:String(c.stamp), totalCharges:String(c.totalCharges),
+    sebi:String(c.sebi), gst:String(c.gst), stamp:String(c.stamp), totalCharges:String(+oc.toFixed(2)),
   };
 };
 
@@ -296,15 +297,16 @@ const recalcLegs = (trade) => {
     exitedSize: String(totExitSize),
     status,
     exitDate:   status==="open" ? "" : (trade.exitDate || ""),
+    actualCharges: trade.actualCharges || "",
     grossPnl:   gross ? String(+gross.toFixed(2)) : "",
-    pnl:        chargesObj ? String(+(gross - chargesObj.totalCharges).toFixed(2)) : (gross ? String(+gross.toFixed(2)) : ""),
+    pnl:        (()=>{ const oc=parseFloat(trade.actualCharges)>0?parseFloat(trade.actualCharges):(chargesObj?chargesObj.totalCharges:null); return oc!=null ? String(+(gross - oc).toFixed(2)) : (gross ? String(+gross.toFixed(2)) : ""); })(),
     brokerage:  chargesObj ? String(chargesObj.brokerage)  : "",
     stt:        chargesObj ? String(chargesObj.stt)        : "",
     txnCharges: chargesObj ? String(chargesObj.txnCharges) : "",
     sebi:       chargesObj ? String(chargesObj.sebi)       : "",
     gst:        chargesObj ? String(chargesObj.gst)        : "",
     stamp:      chargesObj ? String(chargesObj.stamp)      : "",
-    totalCharges: chargesObj ? String(chargesObj.totalCharges) : "",
+    totalCharges: parseFloat(trade.actualCharges)>0 ? String(+parseFloat(trade.actualCharges).toFixed(2)) : (chargesObj ? String(chargesObj.totalCharges) : ""),
   };
 };
 
@@ -313,9 +315,10 @@ const recalcLegs = (trade) => {
 ════════════════════════════════════════════════════════════ */
 const emptyTrade = (instr, setup, emo) => ({
   date:today(), time:nowT(), instrument:instr||"", segment:detectSegment(instr||"",setup||""),
-  direction:"Long", tradeType:"Intraday", setup:setup||"", entry:"", sl:"", exitPrice:"", size:"",
+  direction:"Long", tradeType:"Intraday", setup:setup||"", setups:setup?[setup]:[], entry:"", sl:"", exitPrice:"", size:"",
   exitTime:"",            // optional exit time (entry time = `time`); enables holding-duration
   exitDate:"",            // date the trade was closed (P&L is attributed to this day, not the entry day)
+  actualCharges:"",       // optional: real total charges from the broker contract note (overrides computed)
   isOption:false, strike:"", optType:"CE", optSide:"Buy",   // options: strike, call/put, buy/sell
   entries:[], exits:[],   // pyramiding + partial exits
   entryLegs:[], exitLegs:[],  // extra orders staged in the journal form (combined into entries/exits on log)
@@ -372,6 +375,8 @@ const recomputeFromLegs = (t) => {
     charges = calcCharges(buyVal, sellVal, seg, legVals);
   }
   const totalCharges = charges?.totalCharges || 0;
+  const overrideC = parseFloat(t.actualCharges) > 0 ? parseFloat(t.actualCharges) : null;
+  const effCharges = overrideC != null ? overrideC : totalCharges;
 
   return {
     ...t,
@@ -381,15 +386,16 @@ const recomputeFromLegs = (t) => {
     size:       String(totalEntrySize),
     status,
     exitDate:   status==="open" ? "" : (t.exitDate || ""),
+    actualCharges: t.actualCharges || "",
     grossPnl:   status==="open" ? "" : String(+grossPnl.toFixed(2)),
-    pnl:        status==="open" ? "" : String(+(grossPnl - totalCharges).toFixed(2)),
+    pnl:        status==="open" ? "" : String(+(grossPnl - effCharges).toFixed(2)),
     brokerage:    charges ? String(charges.brokerage)    : "",
     stt:          charges ? String(charges.stt)          : "",
     txnCharges:   charges ? String(charges.txnCharges)   : "",
     sebi:         charges ? String(charges.sebi)         : "",
     gst:          charges ? String(charges.gst)          : "",
     stamp:        charges ? String(charges.stamp)        : "",
-    totalCharges: charges ? String(charges.totalCharges) : "",
+    totalCharges: status==="open" ? "" : String(+effCharges.toFixed(2)),
   };
 };
 const emptyReview = (period) => ({
@@ -684,7 +690,7 @@ export default function App() {
     setEditingTradeId(t.id);
     const eTime = (t.entries && t.entries[0] && t.entries[0].time) || t.time || "";
     const xTime = (t.exits && t.exits.length && t.exits[t.exits.length-1].time) || "";
-    setTf({...t, time:eTime, exitTime:xTime});  // pre-fill form with this trade
+    setTf({...t, time:eTime, exitTime:xTime, setups: t.setups || (t.setup ? t.setup.split(",").map(s=>s.trim()).filter(Boolean) : [])});  // pre-fill form with this trade
     setTab("journal");
     setDrawer(null);
     if (typeof window !== "undefined") window.scrollTo(0, 0);
@@ -1124,9 +1130,25 @@ export default function App() {
         </select>
       </div>
 
-      {/* setup + type */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
-        <Field label="setup"><select style={sty.select} value={tf.setup} onChange={e=>setTf({...tf,setup:e.target.value})}>{setups.map(s=><option key={s}>{s}</option>)}</select></Field>
+      {/* setups — multi-select */}
+      <div style={{marginBottom:T.s[5]}}>
+        <label style={sty.label}>setups <span style={{color:T.mut2,textTransform:"none",letterSpacing:0,fontSize:T.size.tiny}}>· tap to pick one or more</span></label>
+        <div style={{display:"flex",flexWrap:"wrap",gap:T.s[2],marginTop:T.s[2]}}>
+          {setups.map(s => {
+            const sel = (tf.setups||[]).includes(s);
+            return (
+              <button key={s} onClick={()=>{
+                const cur = tf.setups||[];
+                const next = sel ? cur.filter(x=>x!==s) : [...cur, s];
+                setTf({...tf, setups: next, setup: next.join(", ")});
+              }} style={{padding:`${T.s[2]}px ${T.s[3]}px`, border:`1px solid ${sel?T.amb:T.rule}`, background:sel?T.amb:"transparent", color:sel?T.bg:T.mut, cursor:"pointer", fontSize:T.size.small, fontFamily:"'JetBrains Mono', monospace"}}>{s}</button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* type */}
+      <div style={{marginBottom:T.s[5]}}>
         <Field label="type"><select style={sty.select} value={tf.tradeType} onChange={e=>setTf({...tf,tradeType:e.target.value})}>{tradeTypes.map(t=><option key={t}>{t}</option>)}</select></Field>
       </div>
 
@@ -1224,6 +1246,12 @@ export default function App() {
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
         <Field label="entry time"><input type="time" style={sty.input} value={tf.time||""} onChange={e=>setTf({...tf,time:e.target.value})}/></Field>
         <Field label="exit time"><input type="time" style={sty.input} value={tf.exitTime||""} onChange={e=>setTf({...tf,exitTime:e.target.value})} placeholder="for holding time"/></Field>
+      </div>
+
+      {/* actual charges — match the broker contract note exactly (overrides the estimate) */}
+      <div style={{marginBottom:T.s[5]}}>
+        <Field label="actual charges (optional)"><input type="number" style={sty.input} value={tf.actualCharges||""} onChange={e=>updateTf({actualCharges:e.target.value})} placeholder="total from your contract note — overrides the estimate"/></Field>
+        <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[2],lineHeight:1.5}}>the estimate can't know contract lot sizes (e.g. crude = 100 barrels/lot). enter the real total from Zerodha here and P&L + charges match exactly.</div>
       </div>
 
       {/* live preview */}
