@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0420";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.03.0620";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -115,6 +115,28 @@ const fmt2  = (n) => new Intl.NumberFormat("en-IN",{style:"currency",currency:"I
 const ymd   = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 const today = () => ymd(new Date());
 const nowT  = () => new Date().toTimeString().slice(0,5);
+// the day a trade's P&L is realized: close (exit) date for closed/partial trades, else entry date
+const pnlDate = (t) => (t && t.exitDate && t.status !== "open") ? t.exitDate : ((t && t.date) || "");
+
+// compress an uploaded image file to a small JPEG data URL (keeps storage light)
+const compressImage = (file, maxW=1280, quality=0.7) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxW / img.width);
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = reject;
+    img.src = e.target.result;
+  };
+  reader.onerror = reject;
+  reader.readAsDataURL(file);
+});
 
 /* ════════════════════════════════════════════════════════════
    STORAGE — local + cloud
@@ -273,6 +295,7 @@ const recalcLegs = (trade) => {
     size:       String(totEntrySize),
     exitedSize: String(totExitSize),
     status,
+    exitDate:   status==="open" ? "" : (trade.exitDate || ""),
     grossPnl:   gross ? String(+gross.toFixed(2)) : "",
     pnl:        chargesObj ? String(+(gross - chargesObj.totalCharges).toFixed(2)) : (gross ? String(+gross.toFixed(2)) : ""),
     brokerage:  chargesObj ? String(chargesObj.brokerage)  : "",
@@ -292,6 +315,7 @@ const emptyTrade = (instr, setup, emo) => ({
   date:today(), time:nowT(), instrument:instr||"", segment:detectSegment(instr||"",setup||""),
   direction:"Long", tradeType:"Intraday", setup:setup||"", entry:"", sl:"", exitPrice:"", size:"",
   exitTime:"",            // optional exit time (entry time = `time`); enables holding-duration
+  exitDate:"",            // date the trade was closed (P&L is attributed to this day, not the entry day)
   isOption:false, strike:"", optType:"CE", optSide:"Buy",   // options: strike, call/put, buy/sell
   entries:[], exits:[],   // pyramiding + partial exits
   status:"open",
@@ -355,6 +379,7 @@ const recomputeFromLegs = (t) => {
     exitPrice:  avgExit  > 0 ? String(+avgExit.toFixed(4))  : (status==="open" ? "" : t.exitPrice),
     size:       String(totalEntrySize),
     status,
+    exitDate:   status==="open" ? "" : (t.exitDate || ""),
     grossPnl:   status==="open" ? "" : String(+grossPnl.toFixed(2)),
     pnl:        status==="open" ? "" : String(+(grossPnl - totalCharges).toFixed(2)),
     brokerage:    charges ? String(charges.brokerage)    : "",
@@ -444,6 +469,7 @@ export default function App() {
   const [editingReviewId, setEditingReviewId] = useState(null);
   const [expReview, setExpReview] = useState(null);   // expanded review id
   const [expWeek, setExpWeek]     = useState(null);   // expanded nested week id (inside monthly)
+  const [expMini, setExpMini]     = useState(null);   // expanded daily review (inline, inside week/month)
   const [showChecklist, setShowChecklist] = useState(false); // inline checklist in journal
   const [analyticsView, setAnalyticsView] = useState("combined");
   const [settingsDraft, setSettingsDraft] = useState(DEFAULT_SETTINGS);
@@ -475,6 +501,20 @@ export default function App() {
       window.addEventListener("resize", onR);
       return () => window.removeEventListener("resize", onR);
     })();
+  }, []);
+
+  useEffect(() => {
+    const el = document.createElement("style");
+    el.id = "apex-injected-css";
+    el.textContent = `
+      .apex-review-grid { display:grid; grid-template-columns:1fr; gap:${T.s[8]}px; align-items:start; }
+      @media (min-width:700px){
+        .apex-review-grid { grid-template-columns:3fr 2fr; gap:${T.s[10]}px; }
+        .apex-review-grid > div:last-child { border-left:1px solid #2a2620; padding-left:${T.s[8]}px; position:sticky; top:${T.s[5]}px; align-self:start; max-height:calc(100vh - ${T.s[10]}px); overflow-y:auto; }
+      }
+    `;
+    document.head.appendChild(el);
+    return () => { const e=document.getElementById("apex-injected-css"); if(e) e.remove(); };
   }, []);
 
   useEffect(() => {
@@ -560,6 +600,7 @@ export default function App() {
         : (existing.exits || []);
       const merged = recalcLegs({
         ...existing, ...tf, id: editingTradeId,
+        exitDate: isClosed ? (tf.exitDate || existing.exitDate || today()) : "",
         entries: newEntries, exits: newExits,
       });
       pTrades(trades.map(t => t.id === editingTradeId ? merged : t));
@@ -585,6 +626,7 @@ export default function App() {
     const initialExits   = isClosed ? [{ price: tf.exitPrice, size: tf.size||"0", time: tf.exitTime||nowT(), note: "" }] : [];
     const base = {
       ...tf, id: tradeId, status,
+      exitDate: isClosed ? (tf.exitDate || tf.date || today()) : "",
       entries: initialEntries,
       exits: initialExits,
       checklist: checklistSnapshot,
@@ -621,7 +663,7 @@ export default function App() {
     const t = trades.find(x => x.id === tradeId);
     if (!t) return;
     const { exits } = tradeLegs(t);
-    const updated = recomputeFromLegs({...t, exits: [...exits, leg]});
+    const updated = recomputeFromLegs({...t, exits: [...exits, leg], exitDate: t.exitDate || today()});
     pTrades(trades.map(x => x.id === tradeId ? updated : x));
   };
   const removeLeg = (tradeId, side, idx) => {
@@ -773,18 +815,18 @@ export default function App() {
      DERIVED DATA
   ──────────────────────────────────────────────────────── */
   const closed = trades.filter(t => t.status !== "open" && t.pnl !== "" && t.pnl !== undefined);
-  const todayPnl = closed.filter(t=>t.date===today()).reduce((s,t)=>s+parseFloat(t.pnl),0);
-  const weekPnl = (()=>{ const ws=new Date(); ws.setDate(ws.getDate()-ws.getDay()); return closed.filter(t=>new Date(t.date)>=ws).reduce((s,t)=>s+parseFloat(t.pnl),0); })();
-  const monthPnl = (()=>{ const m=new Date(); m.setDate(1); return closed.filter(t=>new Date(t.date)>=m).reduce((s,t)=>s+parseFloat(t.pnl),0); })();
+  const todayPnl = closed.filter(t=>pnlDate(t)===today()).reduce((s,t)=>s+parseFloat(t.pnl),0);
+  const weekPnl = (()=>{ const ws=new Date(); ws.setDate(ws.getDate()-ws.getDay()); return closed.filter(t=>new Date(pnlDate(t))>=ws).reduce((s,t)=>s+parseFloat(t.pnl),0); })();
+  const monthPnl = (()=>{ const m=new Date(); m.setDate(1); return closed.filter(t=>new Date(pnlDate(t))>=m).reduce((s,t)=>s+parseFloat(t.pnl),0); })();
   const totalPnl = closed.reduce((s,t)=>s+parseFloat(t.pnl),0);
   const totalGross = closed.reduce((s,t)=>s+parseFloat(t.grossPnl||t.pnl||0),0);
   const sumBy = (list, f) => list.reduce((s,t)=>s+(parseFloat(t[f])||0),0);
   const wsDate = (()=>{ const w=new Date(); w.setDate(w.getDate()-w.getDay()); w.setHours(0,0,0,0); return w; })();
   const moDate = (()=>{ const m=new Date(); m.setDate(1); m.setHours(0,0,0,0); return m; })();
-  const inWeek  = (t)=> new Date(t.date+"T00:00:00")>=wsDate;
-  const inMonth = (t)=> new Date(t.date+"T00:00:00")>=moDate;
-  const brkPaid = { day:sumBy(closed.filter(t=>t.date===today()),"brokerage"), week:sumBy(closed.filter(inWeek),"brokerage"), month:sumBy(closed.filter(inMonth),"brokerage"), all:sumBy(closed,"brokerage") };
-  const chgPaid = { day:sumBy(closed.filter(t=>t.date===today()),"totalCharges"), week:sumBy(closed.filter(inWeek),"totalCharges"), month:sumBy(closed.filter(inMonth),"totalCharges"), all:sumBy(closed,"totalCharges") };
+  const inWeek  = (t)=> new Date(pnlDate(t)+"T00:00:00")>=wsDate;
+  const inMonth = (t)=> new Date(pnlDate(t)+"T00:00:00")>=moDate;
+  const brkPaid = { day:sumBy(closed.filter(t=>pnlDate(t)===today()),"brokerage"), week:sumBy(closed.filter(inWeek),"brokerage"), month:sumBy(closed.filter(inMonth),"brokerage"), all:sumBy(closed,"brokerage") };
+  const chgPaid = { day:sumBy(closed.filter(t=>pnlDate(t)===today()),"totalCharges"), week:sumBy(closed.filter(inWeek),"totalCharges"), month:sumBy(closed.filter(inMonth),"totalCharges"), all:sumBy(closed,"totalCharges") };
   const totalCharges = closed.reduce((s,t)=>s+parseFloat(t.totalCharges||0),0);
   const wins = closed.filter(t=>parseFloat(t.pnl)>0);
   const losses = closed.filter(t=>parseFloat(t.pnl)<=0);
@@ -797,9 +839,9 @@ export default function App() {
   // capital curve — by date, cumulative
   const curve = useMemo(() => {
     let c = 0;
-    return [...closed].sort((a,b)=>a.date.localeCompare(b.date)).map(t => {
+    return [...closed].sort((a,b)=>pnlDate(a).localeCompare(pnlDate(b))).map(t => {
       c += parseFloat(t.pnl);
-      return { date: t.date.slice(5), v: Math.round(c) };
+      return { date: pnlDate(t).slice(5), v: Math.round(c) };
     });
   }, [trades]);
 
@@ -877,7 +919,7 @@ export default function App() {
         <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em",marginBottom:T.s[4]}}>today</div>
         <div style={sty.heroNum(todayPnl>=0?T.gr:T.rd, isMob?T.size.h1:T.size.mega)}>{fmt(todayPnl)}</div>
         <div style={{color:T.mut,fontSize:T.size.body,marginTop:T.s[3]}}>
-          {closed.filter(t=>t.date===today()).length} trades today &nbsp;·&nbsp; week <span style={{color:T.text}}>{fmt(weekPnl)}</span> &nbsp;·&nbsp; month <span style={{color:T.text}}>{fmt(monthPnl)}</span>
+          {closed.filter(t=>pnlDate(t)===today()).length} trades today &nbsp;·&nbsp; week <span style={{color:T.text}}>{fmt(weekPnl)}</span> &nbsp;·&nbsp; month <span style={{color:T.text}}>{fmt(monthPnl)}</span>
         </div>
       </div>
 
@@ -1133,6 +1175,12 @@ export default function App() {
         </div>
       )}
 
+      {/* dates — entry day vs the day the trade was closed (P&L lands on exit date) */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
+        <Field label="entry date"><input type="date" style={sty.input} value={tf.date||""} onChange={e=>setTf({...tf,date:e.target.value})}/></Field>
+        <Field label="exit date"><input type="date" style={sty.input} value={tf.exitDate||""} onChange={e=>setTf({...tf,exitDate:e.target.value})}/></Field>
+      </div>
+
       {/* times — for holding-duration tracking */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
         <Field label="entry time"><input type="time" style={sty.input} value={tf.time||""} onChange={e=>setTf({...tf,time:e.target.value})}/></Field>
@@ -1182,9 +1230,17 @@ export default function App() {
         <Field label="emotion"><select style={sty.select} value={tf.emotion} onChange={e=>setTf({...tf,emotion:e.target.value})}>{emotions.map(e=><option key={e}>{e}</option>)}</select></Field>
       </div>
 
-      {/* Screenshot URL */}
+      {/* Screenshot — upload or URL */}
       <div style={{marginBottom:T.s[5]}}>
-        <Field label="screenshot url (optional)"><input type="url" style={sty.input} value={tf.screenshot||""} onChange={e=>setTf({...tf,screenshot:e.target.value})} placeholder="paste a tradingview / imgur link"/></Field>
+        <label style={sty.label}>screenshot (optional)</label>
+        <div style={{display:"flex",gap:T.s[2],marginTop:T.s[2],marginBottom:T.s[2]}}>
+          <label style={{...sty.btn(), flex:1, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer"}}>
+            upload image
+            <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{const f=e.target.files[0]; if(f){try{const d=await compressImage(f); setTf({...tf,screenshot:d});}catch{alert("could not read that image");} e.target.value="";}}}/>
+          </label>
+          {tf.screenshot && <button onClick={()=>setTf({...tf,screenshot:""})} style={{...sty.btn(), color:T.rd}}>remove</button>}
+        </div>
+        <input type="url" style={sty.input} value={(tf.screenshot||"").startsWith("data:")?"":(tf.screenshot||"")} onChange={e=>setTf({...tf,screenshot:e.target.value})} placeholder="…or paste a tradingview / imgur link"/>
         {tf.screenshot && (
           <img src={tf.screenshot} alt="trade" style={{marginTop:T.s[3],maxWidth:"100%",border:T.rule1}} onError={e=>{e.target.style.display="none";}}/>
         )}
@@ -1300,7 +1356,8 @@ export default function App() {
                     </div>
                     <div style={{display:"grid", gridTemplateColumns:isMob?"1fr 1fr":"repeat(4,1fr)", gap:T.s[4], marginBottom:T.s[6]}}>
                       {[
-                        ["date & time",   `${t.date} ${t.time||""}`],
+                        ["entry date",    `${t.date} ${t.time||""}`],
+                        ["exit date",     t.exitDate ? `${t.exitDate} ${(t.exits&&t.exits.length&&t.exits[t.exits.length-1].time)||t.exitTime||""}` : (t.status==="open"?"open":"—")],
                         ["segment",       t.segment||"—"],
                         ["trade type",    t.tradeType||"—"],
                         ["direction",     t.direction, t.direction==="Long"?T.gr:T.rd],
@@ -1323,6 +1380,31 @@ export default function App() {
                         </div>
                       ))}
                     </div>
+
+                    {/* charges breakdown */}
+                    {parseFloat(t.totalCharges||0) > 0 && (
+                      <div style={{borderTop:T.rule1,paddingTop:T.s[4],marginBottom:T.s[6]}}>
+                        <div style={{...sty.label,color:T.amb,marginBottom:T.s[3]}}>charges breakdown</div>
+                        {[
+                          ["brokerage",    t.brokerage],
+                          ["STT",          t.stt],
+                          ["exchange txn", t.txnCharges],
+                          ["SEBI",         t.sebi],
+                          ["GST (18%)",    t.gst],
+                          ["stamp duty",   t.stamp],
+                        ].map(([l,v]) => (
+                          <div key={l} style={{display:"flex",justifyContent:"space-between",padding:`${T.s[1]}px 0`,fontSize:T.size.small,color:T.mut}}>
+                            <span>{l}</span>
+                            <span style={{fontFamily:"'JetBrains Mono', monospace",color:T.text}}>{v?fmt2(parseFloat(v)):"—"}</span>
+                          </div>
+                        ))}
+                        <div style={{display:"flex",justifyContent:"space-between",padding:`${T.s[2]}px 0`,marginTop:T.s[1],borderTop:T.rule1,fontSize:T.size.small}}>
+                          <span style={{color:T.text}}>total charges</span>
+                          <span style={{fontFamily:"'JetBrains Mono', monospace",color:T.rd}}>{fmt2(parseFloat(t.totalCharges))}</span>
+                        </div>
+                        <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[2],lineHeight:1.5}}>options STT 0.15% on sell premium · futures STT 0.05% · brokerage ₹20 per order · values use premium × qty</div>
+                      </div>
+                    )}
 
                     {/* Linked plan */}
                     {t.planId && plans.find(p=>p.id===t.planId) && (() => {
@@ -1375,14 +1457,25 @@ export default function App() {
                     )}
 
                     {/* screenshot */}
-                    {t.screenshot && (
-                      <div style={{borderTop:T.rule1,paddingTop:T.s[4],marginBottom:T.s[4]}}>
-                        <label style={{...sty.label,color:T.amb,marginBottom:T.s[3],display:"block"}}>screenshot</label>
+                    <div style={{borderTop:T.rule1,paddingTop:T.s[4],marginBottom:T.s[4]}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:T.s[3]}}>
+                        <label style={{...sty.label,color:T.amb}}>screenshot</label>
+                        <div style={{display:"flex",gap:T.s[2]}}>
+                          <label style={{background:"transparent",color:T.mut,border:`1px solid ${T.rule}`,padding:`${T.s[1]}px ${T.s[3]}px`,fontSize:T.size.tiny,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace"}}>
+                            {t.screenshot?"replace":"upload"}
+                            <input type="file" accept="image/*" style={{display:"none"}} onChange={async e=>{const f=e.target.files[0]; if(f){try{const d=await compressImage(f); pTrades(trades.map(x=>x.id===t.id?{...x,screenshot:d}:x));}catch{alert("could not read that image");} e.target.value="";}}}/>
+                          </label>
+                          {t.screenshot && <button onClick={()=>pTrades(trades.map(x=>x.id===t.id?{...x,screenshot:""}:x))} style={{background:"transparent",color:T.rd,border:`1px solid ${T.rd}`,padding:`${T.s[1]}px ${T.s[3]}px`,fontSize:T.size.tiny,cursor:"pointer",fontFamily:"'JetBrains Mono', monospace"}}>remove</button>}
+                        </div>
+                      </div>
+                      {t.screenshot ? (
                         <a href={t.screenshot} target="_blank" rel="noopener noreferrer">
                           <img src={t.screenshot} alt="trade screenshot" style={{maxWidth:"100%",border:T.rule1,display:"block"}} onError={e=>{e.target.style.display="none";}}/>
                         </a>
-                      </div>
-                    )}
+                      ) : (
+                        <div style={{color:T.mut2,fontSize:T.size.small,padding:`${T.s[3]}px 0`}}>no screenshot — tap upload to add one</div>
+                      )}
+                    </div>
 
                     {/* Post-trade reflection — editable */}
                     <div style={{borderTop:T.rule1,paddingTop:T.s[4],marginBottom:T.s[4]}}>
@@ -1542,7 +1635,7 @@ export default function App() {
 
   const calendarMonth = (list) => {
     const map = {}, cnt = {};
-    list.forEach(t => { map[t.date] = (map[t.date]||0) + parseFloat(t.pnl||0); cnt[t.date] = (cnt[t.date]||0) + 1; });
+    list.forEach(t => { const d=pnlDate(t); map[d] = (map[d]||0) + parseFloat(t.pnl||0); cnt[d] = (cnt[d]||0) + 1; });
     const now = new Date();
     const year = now.getFullYear(), month = now.getMonth();
     const first = new Date(year, month, 1);
@@ -1588,7 +1681,7 @@ export default function App() {
       const xT = (t.exits && t.exits.length && t.exits[t.exits.length-1].time) || "";
       if (!eT || !xT) return null;
       const e = new Date(`${t.date}T${eT}`);
-      const x = new Date(`${t.date}T${xT}`);
+      const x = new Date(`${(t.exitDate||t.date)}T${xT}`);
       if (isNaN(e.getTime()) || isNaN(x.getTime())) return null;
       if (x < e) return null;                 // exit before entry = bad/reversed time data, skip
       const m = (x - e) / 60000;
@@ -1612,7 +1705,7 @@ export default function App() {
     const wlRatio  = avgLossA ? Math.abs(avgWinA/avgLossA).toFixed(2) : "—";
     const totalContracts = Math.round(aData.reduce((s,t)=>s+(parseFloat(t.size)||0),0));
     const dayMap = {};
-    aData.forEach(t => { (dayMap[t.date] = dayMap[t.date] || []).push(t); });
+    aData.forEach(t => { const d=pnlDate(t); (dayMap[d] = dayMap[d] || []).push(t); });
     const dayEntries = Object.entries(dayMap).map(([date, ts]) => ({ date, pnl:ts.reduce((s,t)=>s+parseFloat(t.pnl||0),0), n:ts.length }));
     const winDays    = dayEntries.filter(d=>d.pnl>0).length;
     const dayWinRate = dayEntries.length ? (winDays/dayEntries.length*100) : 0;
@@ -1642,7 +1735,7 @@ export default function App() {
     });
     const dowNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
     const dowMap = {};
-    aData.forEach(t => { const dw = new Date(t.date+"T00:00:00").getDay(); (dowMap[dw]=dowMap[dw]||[]).push(t); });
+    aData.forEach(t => { const dw = new Date(pnlDate(t)+"T00:00:00").getDay(); (dowMap[dw]=dowMap[dw]||[]).push(t); });
     const dowStat = dowNames.map((name,i) => { const ts=dowMap[i]||[]; return { name, n:ts.length, pnl:ts.reduce((s,t)=>s+parseFloat(t.pnl||0),0) }; }).filter(d=>d.n>0);
     const mostActive  = dowStat.reduce((b,d)=> d.n>(b?b.n:-1)?d:b, null);
     const mostProfit  = dowStat.reduce((b,d)=> d.pnl>(b?b.pnl:-Infinity)?d:b, null);
@@ -1773,7 +1866,7 @@ export default function App() {
         {/* §04 EQUITY CURVE */}
         <Sec n="04" title="equity curve"/>
         {(() => {
-          let c=0; const data = [...aData].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{c+=parseFloat(t.pnl||0); return {date:t.date.slice(5), v:Math.round(c)};});
+          let c=0; const data = [...aData].sort((a,b)=>pnlDate(a).localeCompare(pnlDate(b))).map(t=>{c+=parseFloat(t.pnl||0); return {date:pnlDate(t).slice(5), v:Math.round(c)};});
           return data.length>1 ? (
             <div style={{marginBottom:T.s[8]}}>
               <ResponsiveContainer width="100%" height={isMob?180:240}>
@@ -2213,18 +2306,23 @@ export default function App() {
       ["rules followed","rulesFollowed"],["emotional trading","emotionalTrading"],["regrets","regrets"],
       ["improvements","improvements"],["self coaching","selfCoaching"],
     ];
-    const reviewMini = (r) => (
-      <div key={r.id} style={{padding:`${T.s[2]}px 0`, borderBottom:T.rule1}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <span style={{color:T.text,fontSize:T.size.small}}>{r.date} · {revWeekday(r.date)}</span>
-          <div style={{display:"flex",gap:T.s[2],alignItems:"center"}}>
-            <span style={{color:T.amb,fontSize:T.size.tiny}}>{r.mentalState?.toLowerCase()}</span>
-            <button onClick={(e)=>{e.stopPropagation();startEditReview(r);}} style={{background:"transparent",color:T.mut,border:"none",cursor:"pointer",fontSize:T.size.tiny,fontFamily:"'JetBrains Mono', monospace"}}>edit</button>
+    const reviewMini = (r) => {
+      const open = expMini === r.id;
+      return (
+        <div key={r.id} style={{padding:`${T.s[2]}px 0`, borderBottom:T.rule1}}>
+          <div onClick={()=>setExpMini(open?null:r.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}}>
+            <span style={{color:T.text,fontSize:T.size.small}}>{r.date} · {revWeekday(r.date)} <span style={{color:T.mut2}}>{open?"▾":"▸"}</span></span>
+            <div style={{display:"flex",gap:T.s[2],alignItems:"center"}}>
+              <span style={{color:T.amb,fontSize:T.size.tiny}}>{r.mentalState?.toLowerCase()}</span>
+              <button onClick={(e)=>{e.stopPropagation();startEditReview(r);}} style={{background:"transparent",color:T.mut,border:"none",cursor:"pointer",fontSize:T.size.tiny,fontFamily:"'JetBrains Mono', monospace"}}>edit</button>
+            </div>
           </div>
+          {open
+            ? <div style={{marginTop:T.s[3]}}>{fieldsView(r)}</div>
+            : <div style={{color:T.mut,fontSize:T.size.tiny,marginTop:2,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",overflowWrap:"anywhere"}}>{revExcerpt(r)}</div>}
         </div>
-        <div style={{color:T.mut,fontSize:T.size.tiny,marginTop:2,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden",overflowWrap:"anywhere"}}>{revExcerpt(r)}</div>
-      </div>
-    );
+      );
+    };
     const fieldsView = (r) => RFIELDS.filter(([,k])=>r[k]).map(([l,k]) => (
       <div key={k} style={{marginBottom:T.s[3]}}>
         <div style={sty.label}>{l}</div>
@@ -2312,11 +2410,11 @@ export default function App() {
       <div>
         <div style={{display:"flex",gap:T.s[2],marginBottom:T.s[6]}}>
           {periods.map(p => (
-            <button key={p} onClick={()=>{setReviewTab(p); setRf(emptyReview(p)); setEditingReviewId(null); setExpReview(null); setExpWeek(null);}} style={{...sty.btn(), background:reviewTab===p?T.amb:"transparent", color:reviewTab===p?T.bg:T.text, flex:1}}>{p}</button>
+            <button key={p} onClick={()=>{setReviewTab(p); setRf(emptyReview(p)); setEditingReviewId(null); setExpReview(null); setExpWeek(null); setExpMini(null);}} style={{...sty.btn(), background:reviewTab===p?T.amb:"transparent", color:reviewTab===p?T.bg:T.text, flex:1}}>{p}</button>
           ))}
         </div>
 
-        <div style={{display:"grid", gridTemplateColumns: isMob?"1fr":"3fr 2fr", gap:isMob?T.s[8]:T.s[10], alignItems:"start"}}>
+        <div className="apex-review-grid">
           <div style={{minWidth:0}}>
             <Sec n="01" title={editingReviewId ? `editing ${reviewTab} review` : `new ${reviewTab} review`} right={editingReviewId?"editing":undefined}/>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[4]}}>
@@ -2398,7 +2496,7 @@ export default function App() {
      LAYOUT
   ──────────────────────────────────────────────────────── */
   const renderSidebar = () => (
-    <aside style={{borderRight:T.rule1, padding:`${T.s[8]}px ${T.s[6]}px ${T.s[6]}px`, display:"flex", flexDirection:"column", background:T.bg, position:"sticky", top:0, alignSelf:"start", height:"100vh", overflow:"hidden"}}>
+    <aside style={{borderRight:T.rule1, padding:`${T.s[8]}px ${T.s[6]}px ${T.s[6]}px`, display:"flex", flexDirection:"column", background:T.bg, position:"fixed", top:0, left:0, width:220, boxSizing:"border-box", height:"100vh", overflow:"hidden", zIndex:40}}>
       <div style={{flexShrink:0}}>
         <div style={{color:T.amb,fontSize:T.size.label,textTransform:"uppercase",letterSpacing:".18em"}}>trading journal</div>
         <div style={{fontSize:T.size.h1,fontWeight:T.weight.thin,letterSpacing:"-.02em",marginTop:T.s[2],color:T.text}}>Top 1%</div>
@@ -2452,9 +2550,9 @@ export default function App() {
   return (
     <div style={{background:T.bg,minHeight:"100vh",color:T.text,fontFamily:"'JetBrains Mono', ui-monospace, monospace",fontWeight:T.weight.light,zoom:settings.textScale||1,width:"100%",maxWidth:"100vw",overflowX:isMob?"hidden":"visible"}}>
       {!isMob ? (
-        <div style={{display:"grid", gridTemplateColumns:"220px 1fr", minHeight:"100vh"}}>
+        <div style={{minHeight:"100vh"}}>
           {renderSidebar()}
-          <main style={{padding:`${T.s[8]}px ${T.s[12]}px ${T.s[16]}px`, maxWidth:1100}}>
+          <main style={{marginLeft:220, padding:`${T.s[8]}px ${T.s[12]}px ${T.s[16]}px`, maxWidth:1100}}>
             <div style={{color:T.mut2, fontSize:T.size.label, letterSpacing:".2em", marginBottom:T.s[8]}}>
               ./ {tab} &nbsp;·&nbsp; screen {String(TABS.findIndex(t=>t.key===tab)+1).padStart(2,"0")} of {String(TABS.length).padStart(2,"0")}
             </div>
