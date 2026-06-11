@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.04.0250";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.04.0420";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -244,6 +244,7 @@ const applyCharges = (trade) => {
   return {
     ...trade, segment:seg, grossPnl:String(+gross.toFixed(2)),
     pnl:String(+(gross - oc).toFixed(2)),
+    rrAchieved: (()=>{ const slP=parseFloat(trade.sl); const rpu=(slP>0)?Math.abs(entry-slP):0; return rpu>0?String(+(gross/(rpu*size)).toFixed(2)):""; })(),
     brokerage:String(c.brokerage), stt:String(c.stt), txnCharges:String(c.txnCharges),
     sebi:String(c.sebi), gst:String(c.gst), stamp:String(c.stamp), totalCharges:String(+oc.toFixed(2)),
   };
@@ -307,6 +308,7 @@ const recalcLegs = (trade) => {
     status,
     exitDate:   status==="open" ? "" : (trade.exitDate || ""),
     actualCharges: trade.actualCharges || "",
+    rrAchieved: (()=>{ const slP=parseFloat(trade.sl); const rpu=(slP>0&&avgEntry>0)?Math.abs(avgEntry-slP):0; return (matched>0&&rpu>0)?String(+(gross/(rpu*matched)).toFixed(2)):""; })(),
     grossPnl:   gross ? String(+gross.toFixed(2)) : "",
     pnl:        (()=>{ const oc=parseFloat(trade.actualCharges)>0?parseFloat(trade.actualCharges):(chargesObj?chargesObj.totalCharges:null); return oc!=null ? String(+(gross - oc).toFixed(2)) : (gross ? String(+gross.toFixed(2)) : ""); })(),
     brokerage:  chargesObj ? String(chargesObj.brokerage)  : "",
@@ -331,6 +333,7 @@ const emptyTrade = (instr, setup, emo) => ({
   isOption:false, strike:"", optType:"CE", optSide:"Buy",   // options: strike, call/put, buy/sell
   strike2:"", optType2:"PE",  // second leg for straddle/strangle (logged as one trade)
   legEntry1:"", legSl1:"", legExit1:"", legEntry2:"", legSl2:"", legExit2:"",  // per-leg premiums (combined auto-computed)
+  legSize1:"", legSize2:"",  // per-leg quantity — sides can be unequal (ratio structures)
   entries:[], exits:[],   // pyramiding + partial exits
   entryLegs:[], exitLegs:[],  // extra orders staged in the journal form (combined into entries/exits on log)
   status:"open",
@@ -389,6 +392,10 @@ const recomputeFromLegs = (t) => {
   const totalCharges = charges?.totalCharges || 0;
   const overrideC = parseFloat(t.actualCharges) > 0 ? parseFloat(t.actualCharges) : null;
   const effCharges = overrideC != null ? overrideC : totalCharges;
+  // achieved R multiple: gross result ÷ risk taken (|entry − SL| × closed size); negative on losses
+  const slP = parseFloat(t.sl);
+  const riskPU = (slP > 0 && avgEntry > 0) ? Math.abs(avgEntry - slP) : 0;
+  const rrA = (closedSize > 0 && riskPU > 0) ? String(+(grossPnl / (riskPU * closedSize)).toFixed(2)) : "";
 
   return {
     ...t,
@@ -399,6 +406,7 @@ const recomputeFromLegs = (t) => {
     status,
     exitDate:   status==="open" ? "" : (t.exitDate || ""),
     actualCharges: t.actualCharges || "",
+    rrAchieved: rrA,
     grossPnl:   status==="open" ? "" : String(+grossPnl.toFixed(2)),
     pnl:        status==="open" ? "" : String(+(grossPnl - effCharges).toFixed(2)),
     brokerage:    charges ? String(charges.brokerage)    : "",
@@ -604,6 +612,7 @@ export default function App() {
   // ── log trade ────────────────────────────────────────────
   const logTrade = () => {
     if (isMultiLegSetup(tf) && (tf.segment||"").includes("Options")) {
+      if (!(parseFloat(tf.legSize1)>0) || !(parseFloat(tf.legSize2)>0)) return alert("Enter the quantity for both legs.");
       if (!tf.legEntry1 || !tf.legEntry2) return alert("Enter the entry premium for both legs.");
       if ((tf.legExit1 && !tf.legExit2) || (!tf.legExit1 && tf.legExit2)) return alert("Enter the exit for both legs — or leave both blank to log it open.");
     }
@@ -876,7 +885,8 @@ export default function App() {
   const gw = wins.reduce((s,t)=>s+parseFloat(t.pnl),0);
   const gl = Math.abs(losses.reduce((s,t)=>s+parseFloat(t.pnl),0));
   const pf = gl ? (gw/gl).toFixed(2) : "—";
-  const avgRR = closed.length ? (closed.reduce((s,t)=>s+parseFloat(t.rrAchieved||0),0)/closed.length).toFixed(2) : "0";
+  const withRR = closed.filter(t=>t.rrAchieved!=="" && t.rrAchieved!=null);
+  const avgRR = withRR.length ? (withRR.reduce((s,t)=>s+parseFloat(t.rrAchieved),0)/withRR.length).toFixed(2) : "0";
 
   // capital curve — by date, cumulative
   const curve = useMemo(() => {
@@ -1194,10 +1204,19 @@ export default function App() {
           <div style={{...sty.label,marginBottom:T.s[3],color:T.amb}}>options · {tf.segment}{isMulti ? " · two legs" : ""}</div>
           {isMulti ? (
             <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:T.s[4],marginBottom:T.s[4]}}>
-              {[1,2].map(n => {
+              {(() => {
+                // weighted recompute: any leg field change re-derives combined entry/sl/exit (size-weighted) + total size
+                const mUpd = (patch) => {
+                  const n = {...tf, ...patch};
+                  const s1 = parseFloat(n.legSize1), s2 = parseFloat(n.legSize2);
+                  const tot = (s1>0 && s2>0) ? s1+s2 : null;
+                  const w = (a,b) => { const x=parseFloat(a), y=parseFloat(b);
+                    return (tot && a!==""&&a!=null && b!==""&&b!=null && !isNaN(x) && !isNaN(y)) ? String(+(((x*s1)+(y*s2))/tot).toFixed(4)) : ""; };
+                  setTf(applyCharges({...n, size: tot?String(tot):"", entry:w(n.legEntry1,n.legEntry2), sl:w(n.legSl1,n.legSl2), exitPrice:w(n.legExit1,n.legExit2)}));
+                };
+                return [1,2].map(n => {
                 const sK=n===1?"strike":"strike2", tK=n===1?"optType":"optType2";
-                const eK=`legEntry${n}`, slK=`legSl${n}`, xK=`legExit${n}`;
-                const other = (k)=> tf[`leg${k}${n===1?2:1}`];
+                const eK=`legEntry${n}`, slK=`legSl${n}`, xK=`legExit${n}`, zK=`legSize${n}`;
                 return (
                 <div key={n} style={{border:T.rule1,padding:T.s[3]}}>
                   <div style={{...sty.label,color:T.amb,marginBottom:T.s[2]}}>leg {n}</div>
@@ -1205,14 +1224,17 @@ export default function App() {
                   <div style={{display:"flex",gap:T.s[2],margin:`${T.s[2]}px 0 ${T.s[3]}px`}}>
                     {["CE","PE"].map(o=><button key={o} onClick={()=>setTf({...tf,[tK]:o})} style={{flex:1,...sty.btn(),background:(tf[tK]||(n===2?"PE":"CE"))===o?T.amb:"transparent",color:(tf[tK]||(n===2?"PE":"CE"))===o?T.bg:T.text}}>{o}</button>)}
                   </div>
-                  <Field label="entry"><input type="number" style={sty.input} value={tf[eK]||""} onChange={e=>updateTf({[eK]:e.target.value, entry: bothOr(e.target.value, other("Entry"))})}/></Field>
+                  <Field label="qty"><input type="number" style={sty.input} value={tf[zK]||""} onChange={e=>mUpd({[zK]:e.target.value})} placeholder="this leg's quantity"/></Field>
                   <div style={{height:T.s[2]}}/>
-                  <Field label="stop loss"><input type="number" style={sty.input} value={tf[slK]||""} onChange={e=>setTf({...tf,[slK]:e.target.value, sl: bothOr(e.target.value, other("Sl"))})}/></Field>
+                  <Field label="entry"><input type="number" style={sty.input} value={tf[eK]||""} onChange={e=>mUpd({[eK]:e.target.value})}/></Field>
                   <div style={{height:T.s[2]}}/>
-                  <Field label="exit (optional)"><input type="number" style={sty.input} value={tf[xK]||""} onChange={e=>updateTf({[xK]:e.target.value, exitPrice: bothOr(e.target.value, other("Exit"))})}/></Field>
+                  <Field label="stop loss"><input type="number" style={sty.input} value={tf[slK]||""} onChange={e=>mUpd({[slK]:e.target.value})}/></Field>
+                  <div style={{height:T.s[2]}}/>
+                  <Field label="exit (optional)"><input type="number" style={sty.input} value={tf[xK]||""} onChange={e=>mUpd({[xK]:e.target.value})}/></Field>
                 </div>
                 );
-              })}
+                });
+              })()}
             </div>
           ) : (
             <div style={{marginBottom:T.s[4]}}>
@@ -1233,7 +1255,7 @@ export default function App() {
               </div>
             </Field>
           </div>
-          {isMulti && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[3],lineHeight:1.5}}>logged as one trade — combined premium, SL, and exit are calculated from the two legs automatically. brokerage counts each fill as two orders.</div>}
+          {isMulti && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[3],lineHeight:1.5}}>logged as one trade — legs can have unequal qty. combined entry/sl/exit are qty-weighted from the legs, total qty = leg 1 + leg 2, so p&l is exact. brokerage counts each fill as two orders.</div>}
           {!isMulti && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[3],lineHeight:1.5}}>p&l follows buy/sell of the premium — buying a put profits when premium rises, even though the view is short.</div>}
         </div>
         );
@@ -1250,6 +1272,7 @@ export default function App() {
             <span style={{color:T.mut}}>combined entry <span style={{color:T.text}}>{tf.entry||"—"}</span></span>
             <span style={{color:T.mut}}>combined sl <span style={{color:T.text}}>{tf.sl||"—"}</span></span>
             <span style={{color:T.mut}}>combined exit <span style={{color:T.text}}>{tf.exitPrice||"—"}</span></span>
+            <span style={{color:T.mut}}>total qty <span style={{color:T.text}}>{tf.size||"—"}</span></span>
           </div>
         );
         return (
@@ -1269,10 +1292,11 @@ export default function App() {
       {/* size */}
       {(() => {
         const multiE = !!editingTradeId && (tf.entries||[]).length > 1;
+        const isMultiQ = isMultiLegSetup(tf) && (tf.segment||"").includes("Options");
         const lock = { readOnly:true, style:{...sty.input, opacity:.55, cursor:"not-allowed"} };
         return (
         <div style={{marginBottom:T.s[5]}}>
-          <Field label={multiE?"position size (from legs)":(isMultiLegSetup(tf)&&(tf.segment||"").includes("Options")?"position size (per leg)":"position size")}><input type="number" {...(multiE?lock:{style:sty.input})} value={tf.size} onChange={e=>{ if(!multiE) updateTf({size:e.target.value}); }}/></Field>
+          <Field label={isMultiQ?"total qty (auto · leg 1 + leg 2)":(multiE?"position size (from legs)":"position size")}><input type="number" {...((multiE||isMultiQ)?lock:{style:sty.input})} value={tf.size} onChange={e=>{ if(!multiE && !isMultiQ) updateTf({size:e.target.value}); }}/></Field>
         </div>
         );
       })()}
@@ -1517,7 +1541,7 @@ export default function App() {
                         ["entry date",    `${t.date} ${t.time||""}`],
                         ["exit date",     t.exitDate ? `${t.exitDate} ${(t.exits&&t.exits.length&&t.exits[t.exits.length-1].time)||t.exitTime||""}` : (t.status==="open"?"open":"—")],
                         ...(t.isOption||(t.segment||"").includes("Options") ? [["option", `${t.strike||"—"} ${t.optType||""}${t.strike2?` + ${t.strike2} ${t.optType2||"PE"}`:""} · ${(t.optSide||"").toLowerCase()}`]] : []),
-                        ...(t.strike2 && (t.legEntry1||t.legEntry2) ? [["leg premiums", `L1 ${t.legEntry1||"—"}→${t.legExit1||"—"} · L2 ${t.legEntry2||"—"}→${t.legExit2||"—"}`]] : []),
+                        ...(t.strike2 && (t.legEntry1||t.legEntry2) ? [["leg premiums", `L1 ${t.legSize1?t.legSize1+"× ":""}${t.legEntry1||"—"}→${t.legExit1||"—"} · L2 ${t.legSize2?t.legSize2+"× ":""}${t.legEntry2||"—"}→${t.legExit2||"—"}`]] : []),
                         ["segment",       t.segment||"—"],
                         ["trade type",    t.tradeType||"—"],
                         ["direction",     t.direction, t.direction==="Long"?T.gr:T.rd],
