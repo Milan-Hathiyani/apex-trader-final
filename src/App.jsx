@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.03.0720";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.04.0100";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -117,6 +117,10 @@ const today = () => ymd(new Date());
 const nowT  = () => new Date().toTimeString().slice(0,5);
 // the day a trade's P&L is realized: close (exit) date for closed/partial trades, else entry date
 const pnlDate = (t) => (t && t.exitDate && t.status !== "open") ? t.exitDate : ((t && t.date) || "");
+// options P&L follows the premium side, not the market view: buying a put is a Short *view*
+// but a BUY of premium — you profit when the premium rises. Futures/equity follow direction.
+const isOptTrade   = (t) => !!(t && (t.isOption || (t.segment||"").includes("Options")));
+const isBullishPnl = (t) => isOptTrade(t) ? (t.optSide||"Buy") === "Buy" : t.direction === "Long";
 
 // compress an uploaded image file to a small JPEG data URL (keeps storage light)
 const compressImage = (file, maxW=1280, quality=0.7) => new Promise((resolve, reject) => {
@@ -226,12 +230,13 @@ const applyCharges = (trade) => {
   // Single-leg shortcut (for fresh journal entries)
   const entry = parseFloat(trade.entry), exit = parseFloat(trade.exitPrice), size = parseFloat(trade.size);
   if (!entry||!exit||!size) return trade;
-  const buyVal  = trade.direction==="Long" ? entry*size : exit*size;
-  const sellVal = trade.direction==="Long" ? exit*size  : entry*size;
+  const bull = isBullishPnl(trade);
+  const buyVal  = bull ? entry*size : exit*size;
+  const sellVal = bull ? exit*size  : entry*size;
   const seg = trade.segment || detectSegment(trade.instrument, trade.setup);
   const c   = calcCharges(buyVal, sellVal, seg);
   if (!c) return trade;
-  const gross = trade.direction==="Long" ? (exit-entry)*size : (entry-exit)*size;
+  const gross = bull ? (exit-entry)*size : (entry-exit)*size;
   const oc = parseFloat(trade.actualCharges) > 0 ? parseFloat(trade.actualCharges) : c.totalCharges;
   return {
     ...trade, segment:seg, grossPnl:String(+gross.toFixed(2)),
@@ -271,10 +276,11 @@ const recalcLegs = (trade) => {
 
   // P&L: realized portion only (matched size)
   const matched = Math.min(totEntrySize, totExitSize);
+  const bull = isBullishPnl(trade);
   let gross = 0;
   if (matched > 0) {
-    if (trade.direction === "Long") gross = (avgExit - avgEntry) * matched;
-    else                            gross = (avgEntry - avgExit) * matched;
+    if (bull) gross = (avgExit - avgEntry) * matched;
+    else      gross = (avgEntry - avgExit) * matched;
   }
 
   // Charges based on total turnover of matched portion
@@ -282,8 +288,8 @@ const recalcLegs = (trade) => {
   if (matched > 0) {
     const matchedEntryVal = avgEntry * matched;
     const matchedExitVal  = avgExit * matched;
-    const buyVal  = trade.direction==="Long" ? matchedEntryVal : matchedExitVal;
-    const sellVal = trade.direction==="Long" ? matchedExitVal  : matchedEntryVal;
+    const buyVal  = bull ? matchedEntryVal : matchedExitVal;
+    const sellVal = bull ? matchedExitVal  : matchedEntryVal;
     const seg = trade.segment || detectSegment(trade.instrument, trade.setup);
     chargesObj = calcCharges(buyVal, sellVal, seg);
   }
@@ -320,6 +326,7 @@ const emptyTrade = (instr, setup, emo) => ({
   exitDate:"",            // date the trade was closed (P&L is attributed to this day, not the entry day)
   actualCharges:"",       // optional: real total charges from the broker contract note (overrides computed)
   isOption:false, strike:"", optType:"CE", optSide:"Buy",   // options: strike, call/put, buy/sell
+  strike2:"", optType2:"PE",  // second leg for straddle/strangle (logged as one trade)
   entries:[], exits:[],   // pyramiding + partial exits
   entryLegs:[], exitLegs:[],  // extra orders staged in the journal form (combined into entries/exits on log)
   status:"open",
@@ -352,7 +359,7 @@ const recomputeFromLegs = (t) => {
   const totalExitSize  = sumSize(exits);
   const avgEntry = avgPrice(entries);
   const avgExit  = avgPrice(exits);
-  const dirSign  = t.direction === "Long" ? 1 : -1;
+  const dirSign  = isBullishPnl(t) ? 1 : -1;
 
   // P&L on the closed portion only
   const closedSize = Math.min(totalEntrySize, totalExitSize);
@@ -366,12 +373,13 @@ const recomputeFromLegs = (t) => {
   // Charges (only on the closed portion)
   let charges = null;
   if (closedSize > 0) {
-    const buyVal  = t.direction === "Long" ? avgEntry*closedSize : avgExit*closedSize;
-    const sellVal = t.direction === "Long" ? avgExit*closedSize  : avgEntry*closedSize;
+    const buyVal  = dirSign === 1 ? avgEntry*closedSize : avgExit*closedSize;
+    const sellVal = dirSign === 1 ? avgExit*closedSize  : avgEntry*closedSize;
     const seg = t.segment || detectSegment(t.instrument, t.setup);
     const legVals = [...entries, ...exits]
       .map(l => (parseFloat(l.price)||0) * (parseFloat(l.size)||0))
       .filter(v => v > 0);
+    if (t.strike2) legVals.push(...legVals);   // straddle/strangle: each logged fill is really two orders (one per leg)
     charges = calcCharges(buyVal, sellVal, seg, legVals);
   }
   const totalCharges = charges?.totalCharges || 0;
@@ -701,14 +709,14 @@ export default function App() {
     setTf(emptyTrade(instruments[0], setups[0], emotions[0]));
   };
 
-  const closeOpenTrade = (id, exitPrice, exitSize) => {
+  const closeOpenTrade = (id, exitPrice, exitSize, exitTime) => {
     const t = trades.find(x => x.id === id);
     if (!t) return;
     const { entries, exits } = tradeLegs(t);
     const remaining = sumSize(entries) - sumSize(exits);
     const closeSize = exitSize ? parseFloat(exitSize) : remaining;
-    const newLeg = { price: String(exitPrice), size: String(closeSize), time: nowT(), note: "" };
-    const updated = recomputeFromLegs({...t, exits: [...exits, newLeg]});
+    const newLeg = { price: String(exitPrice), size: String(closeSize), time: exitTime || nowT(), note: "" };
+    const updated = recomputeFromLegs({...t, exits: [...exits, newLeg], exitDate: t.exitDate || today()});
     pTrades(trades.map(x => x.id === id ? updated : x));
   };
 
@@ -1153,26 +1161,52 @@ export default function App() {
       </div>
 
       {/* options — shown when an options segment is selected */}
-      {(tf.segment||"").includes("Options") && (
+      {(tf.segment||"").includes("Options") && (() => {
+        const isMulti = ((tf.setups||[]).some(s=>/straddle|strangle/i.test(s))) || /straddle|strangle/i.test(tf.setup||"");
+        // the directional VIEW implied by the combo (P&L itself follows buy/sell of premium)
+        const viewOf = (side, type) => (side==="Buy") === (type==="CE") ? "Long" : "Short";
+        return (
         <div style={{marginBottom:T.s[5], border:T.rule1, padding:T.s[4]}}>
-          <div style={{...sty.label,marginBottom:T.s[3],color:T.amb}}>options · {tf.segment}</div>
-          <div style={{marginBottom:T.s[4]}}>
-            <Field label="strike"><input type="number" style={sty.input} value={tf.strike} onChange={e=>setTf({...tf,strike:e.target.value})}/></Field>
-          </div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4]}}>
-            <Field label="type">
+          <div style={{...sty.label,marginBottom:T.s[3],color:T.amb}}>options · {tf.segment}{isMulti ? " · two legs" : ""}</div>
+          {isMulti ? (
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[4]}}>
+              <Field label="strike · leg 1">
+                <input type="number" style={sty.input} value={tf.strike} onChange={e=>setTf({...tf,strike:e.target.value})}/>
+                <div style={{display:"flex",gap:T.s[2],marginTop:T.s[2]}}>
+                  {["CE","PE"].map(o=><button key={o} onClick={()=>setTf({...tf,optType:o})} style={{flex:1,...sty.btn(),background:tf.optType===o?T.amb:"transparent",color:tf.optType===o?T.bg:T.text}}>{o}</button>)}
+                </div>
+              </Field>
+              <Field label="strike · leg 2">
+                <input type="number" style={sty.input} value={tf.strike2||""} onChange={e=>setTf({...tf,strike2:e.target.value})}/>
+                <div style={{display:"flex",gap:T.s[2],marginTop:T.s[2]}}>
+                  {["CE","PE"].map(o=><button key={o} onClick={()=>setTf({...tf,optType2:o})} style={{flex:1,...sty.btn(),background:(tf.optType2||"PE")===o?T.amb:"transparent",color:(tf.optType2||"PE")===o?T.bg:T.text}}>{o}</button>)}
+                </div>
+              </Field>
+            </div>
+          ) : (
+            <div style={{marginBottom:T.s[4]}}>
+              <Field label="strike"><input type="number" style={sty.input} value={tf.strike} onChange={e=>setTf({...tf,strike:e.target.value})}/></Field>
+            </div>
+          )}
+          <div style={{display:"grid",gridTemplateColumns:isMulti?"1fr":"1fr 1fr",gap:T.s[4]}}>
+            {!isMulti && (
+              <Field label="type">
+                <div style={{display:"flex",gap:T.s[2]}}>
+                  {["CE","PE"].map(o=><button key={o} onClick={()=>updateTf({optType:o, direction:viewOf(tf.optSide||"Buy", o)})} style={{flex:1,...sty.btn(),background:tf.optType===o?T.amb:"transparent",color:tf.optType===o?T.bg:T.text}}>{o}</button>)}
+                </div>
+              </Field>
+            )}
+            <Field label={isMulti ? "buy / sell (both legs)" : "buy / sell"}>
               <div style={{display:"flex",gap:T.s[2]}}>
-                {["CE","PE"].map(o=><button key={o} onClick={()=>setTf({...tf,optType:o})} style={{flex:1,...sty.btn(),background:tf.optType===o?T.amb:"transparent",color:tf.optType===o?T.bg:T.text}}>{o}</button>)}
+                {["Buy","Sell"].map(o=><button key={o} onClick={()=>updateTf({optSide:o, direction:isMulti ? tf.direction : viewOf(o, tf.optType||"CE")})} style={{flex:1,...sty.btn(),background:tf.optSide===o?(o==="Buy"?T.gr:T.rd)+"22":"transparent",color:tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.text,border:`1px solid ${tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.mut2}`}}>{o.toLowerCase()}</button>)}
               </div>
             </Field>
-            <Field label="buy / sell">
-              <div style={{display:"flex",gap:T.s[2]}}>
-                {["Buy","Sell"].map(o=><button key={o} onClick={()=>setTf({...tf,optSide:o, direction:o==="Buy"?"Long":"Short"})} style={{flex:1,...sty.btn(),background:tf.optSide===o?(o==="Buy"?T.gr:T.rd)+"22":"transparent",color:tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.text,border:`1px solid ${tf.optSide===o?(o==="Buy"?T.gr:T.rd):T.mut2}`}}>{o.toLowerCase()}</button>)}
-              </div>
-            </Field>
           </div>
+          {isMulti && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[3],lineHeight:1.5}}>logged as one trade — enter the combined premium of both legs in entry/exit. brokerage counts each fill as two orders automatically.</div>}
+          {!isMulti && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[3],lineHeight:1.5}}>p&l follows buy/sell of the premium — buying a put profits when premium rises, even though the view is short.</div>}
         </div>
-      )}
+        );
+      })()}
 
       {/* prices */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
@@ -1396,7 +1430,7 @@ export default function App() {
                     {t.date}
                     <span style={{display:"block",color:T.mut2,fontSize:T.size.tiny}}>{t.date?new Date(t.date+"T00:00:00").toLocaleDateString("en-US",{weekday:"short"}):""}</span>
                   </span>
-                  <span style={{color:T.text,fontSize:T.size.body}}>{t.instrument}{(t.isOption||(t.segment||"").includes("Options")) && <span style={{display:"block",color:T.amb,fontSize:T.size.tiny}}>{t.strike} {t.optType} · {(t.optSide||"").toLowerCase()}</span>}</span>
+                  <span style={{color:T.text,fontSize:T.size.body}}>{t.instrument}{(t.isOption||(t.segment||"").includes("Options")) && <span style={{display:"block",color:T.amb,fontSize:T.size.tiny}}>{t.strike} {t.optType}{t.strike2 ? ` + ${t.strike2} ${t.optType2||"PE"}` : ""} · {(t.optSide||"").toLowerCase()}</span>}</span>
                   {!isMob && <span style={{color:t.direction==="Long"?T.gr:T.rd,fontSize:T.size.small}}>{t.direction?.toLowerCase()}</span>}
                   {!isMob && <span style={{color:T.mut,fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.small}}>{t.entry}</span>}
                   {!isMob && <span style={{color:T.mut,fontFamily:"'JetBrains Mono', monospace",fontSize:T.size.small}}>{t.exitPrice}</span>}
@@ -1425,6 +1459,7 @@ export default function App() {
                       {[
                         ["entry date",    `${t.date} ${t.time||""}`],
                         ["exit date",     t.exitDate ? `${t.exitDate} ${(t.exits&&t.exits.length&&t.exits[t.exits.length-1].time)||t.exitTime||""}` : (t.status==="open"?"open":"—")],
+                        ...(t.isOption||(t.segment||"").includes("Options") ? [["option", `${t.strike||"—"} ${t.optType||""}${t.strike2?` + ${t.strike2} ${t.optType2||"PE"}`:""} · ${(t.optSide||"").toLowerCase()}`]] : []),
                         ["segment",       t.segment||"—"],
                         ["trade type",    t.tradeType||"—"],
                         ["direction",     t.direction, t.direction==="Long"?T.gr:T.rd],
@@ -1621,41 +1656,54 @@ export default function App() {
                               {/* Add Entry (pyramid in) */}
                               <div style={{padding:T.s[4],border:`1px solid ${T.mut2}`}}>
                                 <div style={{...sty.label,color:T.gr,marginBottom:T.s[3]}}>add entry {openSize===0?"(retroactive)":"(pyramid in)"}</div>
-                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[2],marginBottom:T.s[3]}}>
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[2],marginBottom:T.s[2]}}>
                                   <input id={`ae-p-${t.id}`} type="number" placeholder="price" style={sty.input}/>
                                   <input id={`ae-s-${t.id}`} type="number" placeholder="size"  style={sty.input}/>
+                                </div>
+                                <div style={{marginBottom:T.s[3]}}>
+                                  <label style={{...sty.label,fontSize:T.size.tiny}}>time (blank = now)</label>
+                                  <input id={`ae-t-${t.id}`} type="time" style={sty.input}/>
                                 </div>
                                 <button onClick={()=>{
                                   const p = document.getElementById(`ae-p-${t.id}`).value;
                                   const s = document.getElementById(`ae-s-${t.id}`).value;
+                                  const tm = document.getElementById(`ae-t-${t.id}`).value;
                                   if(!p||!s) return alert("Price and size required");
-                                  addEntryLeg(t.id,{price:p,size:s,time:nowT(),note:""});
+                                  addEntryLeg(t.id,{price:p,size:s,time:tm||nowT(),note:""});
                                   document.getElementById(`ae-p-${t.id}`).value="";
                                   document.getElementById(`ae-s-${t.id}`).value="";
+                                  document.getElementById(`ae-t-${t.id}`).value="";
                                 }} style={{...sty.btn(),width:"100%",borderColor:T.gr,color:T.gr}}>+ add entry</button>
                               </div>
                               {/* Add Exit (partial close) */}
                               <div style={{padding:T.s[4],border:`1px solid ${T.mut2}`}}>
                                 <div style={{...sty.label,color:T.rd,marginBottom:T.s[3]}}>add exit{openSize>0?` · ${openSize} open`:" (retroactive)"}</div>
-                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[2],marginBottom:T.s[3]}}>
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[2],marginBottom:T.s[2]}}>
                                   <input id={`ax-p-${t.id}`} type="number" placeholder="price" style={sty.input}/>
                                   <input id={`ax-s-${t.id}`} type="number" placeholder={`size${openSize>0?` (${openSize})`:""}`} style={sty.input}/>
+                                </div>
+                                <div style={{marginBottom:T.s[3]}}>
+                                  <label style={{...sty.label,fontSize:T.size.tiny}}>time (blank = now)</label>
+                                  <input id={`ax-t-${t.id}`} type="time" style={sty.input}/>
                                 </div>
                                 <div style={{display:"flex",gap:T.s[2]}}>
                                   <button onClick={()=>{
                                     const p = document.getElementById(`ax-p-${t.id}`).value;
                                     const s = document.getElementById(`ax-s-${t.id}`).value || String(openSize);
+                                    const tm = document.getElementById(`ax-t-${t.id}`).value;
                                     if(!p) return alert("Price required");
                                     if(parseFloat(s) <= 0) return alert("Size must be > 0");
-                                    closeOpenTrade(t.id, p, s);
+                                    closeOpenTrade(t.id, p, s, tm);
                                     document.getElementById(`ax-p-${t.id}`).value="";
                                     document.getElementById(`ax-s-${t.id}`).value="";
+                                    document.getElementById(`ax-t-${t.id}`).value="";
                                   }} style={{...sty.btn(),flex:1,borderColor:T.rd,color:T.rd}}>partial close</button>
                                   {openSize > 0 && (
                                     <button onClick={()=>{
                                       const p = document.getElementById(`ax-p-${t.id}`).value;
+                                      const tm = document.getElementById(`ax-t-${t.id}`).value;
                                       if(!p) return alert("Price required");
-                                      closeOpenTrade(t.id, p, openSize);
+                                      closeOpenTrade(t.id, p, openSize, tm);
                                     }} style={{...sty.btn("primary"),flex:1}}>close all</button>
                                   )}
                                 </div>
