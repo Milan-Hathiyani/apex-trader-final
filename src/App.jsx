@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.04.0140";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.04.0250";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -121,6 +121,9 @@ const pnlDate = (t) => (t && t.exitDate && t.status !== "open") ? t.exitDate : (
 // but a BUY of premium — you profit when the premium rises. Futures/equity follow direction.
 const isOptTrade   = (t) => !!(t && (t.isOption || (t.segment||"").includes("Options")));
 const isBullishPnl = (t) => isOptTrade(t) ? (t.optSide||"Buy") === "Buy" : t.direction === "Long";
+const isMultiLegSetup = (t) => ((t.setups||[]).some(s=>/straddle|strangle/i.test(s))) || /straddle|strangle/i.test(t.setup||"");
+// combined value of two leg inputs — only when BOTH are filled (else "")
+const bothOr = (a,b) => (a!==""&&a!=null&&b!==""&&b!=null) ? String(+((parseFloat(a)||0)+(parseFloat(b)||0)).toFixed(2)) : "";
 
 // compress an uploaded image file to a small JPEG data URL (keeps storage light)
 const compressImage = (file, maxW=1280, quality=0.7) => new Promise((resolve, reject) => {
@@ -327,6 +330,7 @@ const emptyTrade = (instr, setup, emo) => ({
   actualCharges:"",       // optional: real total charges from the broker contract note (overrides computed)
   isOption:false, strike:"", optType:"CE", optSide:"Buy",   // options: strike, call/put, buy/sell
   strike2:"", optType2:"PE",  // second leg for straddle/strangle (logged as one trade)
+  legEntry1:"", legSl1:"", legExit1:"", legEntry2:"", legSl2:"", legExit2:"",  // per-leg premiums (combined auto-computed)
   entries:[], exits:[],   // pyramiding + partial exits
   entryLegs:[], exitLegs:[],  // extra orders staged in the journal form (combined into entries/exits on log)
   status:"open",
@@ -497,6 +501,7 @@ export default function App() {
   const [fDir,        setFDir]        = useState("All");
   const [expanded,    setExpanded]    = useState(null);
   const [expCharges,  setExpCharges]  = useState(null);  // collapsible charges breakdown per trade
+  const [editLeg,     setEditLeg]     = useState(null);   // {tid, side, idx, price, size, time} — inline fill editing
 
   // ── risk calc state ──────────────────────────────────────
   const [rc, setRc] = useState({ entry:"", sl:"", rr:"2", riskType:"base", segment:"F&O Futures", instrument:"" });
@@ -598,6 +603,10 @@ export default function App() {
 
   // ── log trade ────────────────────────────────────────────
   const logTrade = () => {
+    if (isMultiLegSetup(tf) && (tf.segment||"").includes("Options")) {
+      if (!tf.legEntry1 || !tf.legEntry2) return alert("Enter the entry premium for both legs.");
+      if ((tf.legExit1 && !tf.legExit2) || (!tf.legExit1 && tf.legExit2)) return alert("Enter the exit for both legs — or leave both blank to log it open.");
+    }
     if (!tf.entry || !tf.sl) return alert("Entry and SL are required.");
 
     const isClosed = !!tf.exitPrice;
@@ -697,6 +706,15 @@ export default function App() {
     const newE = side === "entry" ? entries.filter((_,i)=>i!==idx) : entries;
     const newX = side === "exit"  ? exits.filter((_,i)=>i!==idx)   : exits;
     const updated = recomputeFromLegs({...t, entries: newE, exits: newX});
+    pTrades(trades.map(x => x.id === tradeId ? updated : x));
+  };
+
+  const updateLeg = (tradeId, side, idx, patch) => {
+    const t = trades.find(x => x.id === tradeId);
+    if (!t) return;
+    const { entries, exits } = tradeLegs(t);
+    const fix = (arr) => arr.map((l,i)=> i===idx ? {...l, ...patch} : l);
+    const updated = recomputeFromLegs({...t, entries: side==="entry"?fix(entries):entries, exits: side==="exit"?fix(exits):exits});
     pTrades(trades.map(x => x.id === tradeId ? updated : x));
   };
 
@@ -1168,26 +1186,33 @@ export default function App() {
 
       {/* options — shown when an options segment is selected */}
       {(tf.segment||"").includes("Options") && (() => {
-        const isMulti = ((tf.setups||[]).some(s=>/straddle|strangle/i.test(s))) || /straddle|strangle/i.test(tf.setup||"");
+        const isMulti = isMultiLegSetup(tf);
         // the directional VIEW implied by the combo (P&L itself follows buy/sell of premium)
         const viewOf = (side, type) => (side==="Buy") === (type==="CE") ? "Long" : "Short";
         return (
         <div style={{marginBottom:T.s[5], border:T.rule1, padding:T.s[4]}}>
           <div style={{...sty.label,marginBottom:T.s[3],color:T.amb}}>options · {tf.segment}{isMulti ? " · two legs" : ""}</div>
           {isMulti ? (
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:T.s[4],marginBottom:T.s[4]}}>
-              <Field label="strike · leg 1">
-                <input type="number" style={sty.input} value={tf.strike} onChange={e=>setTf({...tf,strike:e.target.value})}/>
-                <div style={{display:"flex",gap:T.s[2],marginTop:T.s[2]}}>
-                  {["CE","PE"].map(o=><button key={o} onClick={()=>setTf({...tf,optType:o})} style={{flex:1,...sty.btn(),background:tf.optType===o?T.amb:"transparent",color:tf.optType===o?T.bg:T.text}}>{o}</button>)}
+            <div style={{display:"grid",gridTemplateColumns:isMob?"1fr":"1fr 1fr",gap:T.s[4],marginBottom:T.s[4]}}>
+              {[1,2].map(n => {
+                const sK=n===1?"strike":"strike2", tK=n===1?"optType":"optType2";
+                const eK=`legEntry${n}`, slK=`legSl${n}`, xK=`legExit${n}`;
+                const other = (k)=> tf[`leg${k}${n===1?2:1}`];
+                return (
+                <div key={n} style={{border:T.rule1,padding:T.s[3]}}>
+                  <div style={{...sty.label,color:T.amb,marginBottom:T.s[2]}}>leg {n}</div>
+                  <Field label="strike"><input type="number" style={sty.input} value={tf[sK]||""} onChange={e=>setTf({...tf,[sK]:e.target.value})}/></Field>
+                  <div style={{display:"flex",gap:T.s[2],margin:`${T.s[2]}px 0 ${T.s[3]}px`}}>
+                    {["CE","PE"].map(o=><button key={o} onClick={()=>setTf({...tf,[tK]:o})} style={{flex:1,...sty.btn(),background:(tf[tK]||(n===2?"PE":"CE"))===o?T.amb:"transparent",color:(tf[tK]||(n===2?"PE":"CE"))===o?T.bg:T.text}}>{o}</button>)}
+                  </div>
+                  <Field label="entry"><input type="number" style={sty.input} value={tf[eK]||""} onChange={e=>updateTf({[eK]:e.target.value, entry: bothOr(e.target.value, other("Entry"))})}/></Field>
+                  <div style={{height:T.s[2]}}/>
+                  <Field label="stop loss"><input type="number" style={sty.input} value={tf[slK]||""} onChange={e=>setTf({...tf,[slK]:e.target.value, sl: bothOr(e.target.value, other("Sl"))})}/></Field>
+                  <div style={{height:T.s[2]}}/>
+                  <Field label="exit (optional)"><input type="number" style={sty.input} value={tf[xK]||""} onChange={e=>updateTf({[xK]:e.target.value, exitPrice: bothOr(e.target.value, other("Exit"))})}/></Field>
                 </div>
-              </Field>
-              <Field label="strike · leg 2">
-                <input type="number" style={sty.input} value={tf.strike2||""} onChange={e=>setTf({...tf,strike2:e.target.value})}/>
-                <div style={{display:"flex",gap:T.s[2],marginTop:T.s[2]}}>
-                  {["CE","PE"].map(o=><button key={o} onClick={()=>setTf({...tf,optType2:o})} style={{flex:1,...sty.btn(),background:(tf.optType2||"PE")===o?T.amb:"transparent",color:(tf.optType2||"PE")===o?T.bg:T.text}}>{o}</button>)}
-                </div>
-              </Field>
+                );
+              })}
             </div>
           ) : (
             <div style={{marginBottom:T.s[4]}}>
@@ -1208,7 +1233,7 @@ export default function App() {
               </div>
             </Field>
           </div>
-          {isMulti && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[3],lineHeight:1.5}}>logged as one trade — enter the combined premium of both legs in entry/exit. brokerage counts each fill as two orders automatically.</div>}
+          {isMulti && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[3],lineHeight:1.5}}>logged as one trade — combined premium, SL, and exit are calculated from the two legs automatically. brokerage counts each fill as two orders.</div>}
           {!isMulti && <div style={{color:T.mut2,fontSize:T.size.tiny,marginTop:T.s[3],lineHeight:1.5}}>p&l follows buy/sell of the premium — buying a put profits when premium rises, even though the view is short.</div>}
         </div>
         );
@@ -1218,7 +1243,15 @@ export default function App() {
       {(() => {
         const multiE = !!editingTradeId && (tf.entries||[]).length > 1;
         const multiX = !!editingTradeId && (tf.exits||[]).length > 1;
+        const isMulti = isMultiLegSetup(tf) && (tf.segment||"").includes("Options");
         const lock = { readOnly:true, style:{...sty.input, opacity:.55, cursor:"not-allowed"} };
+        if (isMulti) return (
+          <div style={{border:T.rule1,padding:`${T.s[3]}px ${T.s[4]}px`,marginBottom:T.s[5],display:"flex",gap:T.s[6],flexWrap:"wrap",fontSize:T.size.small,fontFamily:"'JetBrains Mono', monospace"}}>
+            <span style={{color:T.mut}}>combined entry <span style={{color:T.text}}>{tf.entry||"—"}</span></span>
+            <span style={{color:T.mut}}>combined sl <span style={{color:T.text}}>{tf.sl||"—"}</span></span>
+            <span style={{color:T.mut}}>combined exit <span style={{color:T.text}}>{tf.exitPrice||"—"}</span></span>
+          </div>
+        );
         return (
         <>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4],marginBottom:(multiE||multiX)?T.s[2]:T.s[5]}}>
@@ -1229,12 +1262,18 @@ export default function App() {
         {(multiE||multiX) && (
           <div style={{color:T.amb,fontSize:T.size.tiny,marginBottom:T.s[5],lineHeight:1.5}}>this trade has multiple {multiE&&multiX?"entry and exit":multiE?"entry":"exit"} orders — these prices are weighted averages and can't be typed over. edit the exact fills in the trade's position legs section.</div>
         )}
-
-        {/* size */}
-        <div style={{marginBottom:T.s[5]}}>
-          <Field label={multiE?"position size (from legs)":"position size"}><input type="number" {...(multiE?lock:{style:sty.input})} value={tf.size} onChange={e=>{ if(!multiE) updateTf({size:e.target.value}); }}/></Field>
-        </div>
         </>
+        );
+      })()}
+
+      {/* size */}
+      {(() => {
+        const multiE = !!editingTradeId && (tf.entries||[]).length > 1;
+        const lock = { readOnly:true, style:{...sty.input, opacity:.55, cursor:"not-allowed"} };
+        return (
+        <div style={{marginBottom:T.s[5]}}>
+          <Field label={multiE?"position size (from legs)":(isMultiLegSetup(tf)&&(tf.segment||"").includes("Options")?"position size (per leg)":"position size")}><input type="number" {...(multiE?lock:{style:sty.input})} value={tf.size} onChange={e=>{ if(!multiE) updateTf({size:e.target.value}); }}/></Field>
+        </div>
         );
       })()}
 
@@ -1478,6 +1517,7 @@ export default function App() {
                         ["entry date",    `${t.date} ${t.time||""}`],
                         ["exit date",     t.exitDate ? `${t.exitDate} ${(t.exits&&t.exits.length&&t.exits[t.exits.length-1].time)||t.exitTime||""}` : (t.status==="open"?"open":"—")],
                         ...(t.isOption||(t.segment||"").includes("Options") ? [["option", `${t.strike||"—"} ${t.optType||""}${t.strike2?` + ${t.strike2} ${t.optType2||"PE"}`:""} · ${(t.optSide||"").toLowerCase()}`]] : []),
+                        ...(t.strike2 && (t.legEntry1||t.legEntry2) ? [["leg premiums", `L1 ${t.legEntry1||"—"}→${t.legExit1||"—"} · L2 ${t.legEntry2||"—"}→${t.legExit2||"—"}`]] : []),
                         ["segment",       t.segment||"—"],
                         ["trade type",    t.tradeType||"—"],
                         ["direction",     t.direction, t.direction==="Long"?T.gr:T.rd],
@@ -1636,37 +1676,58 @@ export default function App() {
                           </div>
                           <div style={{color:T.mut2,fontSize:T.size.tiny,marginBottom:T.s[3],lineHeight:1.5}}>each fill is one order = ₹20 brokerage. add every buy/sell here and charges update automatically · {entries.length + exits.length} orders so far</div>
 
-                          {/* Entries table */}
-                          {entries.length > 0 && (
-                            <div style={{marginBottom:T.s[4]}}>
-                              <div style={{...sty.label,color:t.direction==="Long"?T.gr:T.rd,marginBottom:T.s[2],fontSize:T.size.tiny}}>{t.direction==="Long"?"entries (buys)":"entries (sells)"}</div>
-                              {entries.map((leg,i) => (
-                                <div key={i} style={{display:"grid",gridTemplateColumns:isMob?"60px 1fr 1fr 30px":"80px 1fr 1fr 1fr 40px",gap:T.s[2],padding:`${T.s[2]}px 0`,borderBottom:T.rule1,fontSize:T.size.small,alignItems:"center"}}>
+                          {/* Entries + Exits tables — each fill editable inline */}
+                          {(() => {
+                            const legRow = (leg, i, side) => {
+                              const isEd = editLeg && editLeg.tid===t.id && editLeg.side===side && editLeg.idx===i;
+                              if (isEd) return (
+                                <div key={side+i} style={{padding:`${T.s[2]}px 0`,borderBottom:T.rule1}}>
+                                  <div style={{display:"grid",gridTemplateColumns:isMob?"1fr 1fr":"60px 1fr 1fr 1fr",gap:T.s[2],alignItems:"center"}}>
+                                    {!isMob && <span style={{color:T.amb,fontSize:T.size.small}}>#{i+1}</span>}
+                                    <input type="number" value={editLeg.price} onChange={e=>setEditLeg({...editLeg,price:e.target.value})} placeholder="price" style={{...sty.input,padding:`${T.s[2]}px ${T.s[3]}px`}}/>
+                                    <input type="number" value={editLeg.size} onChange={e=>setEditLeg({...editLeg,size:e.target.value})} placeholder="size" style={{...sty.input,padding:`${T.s[2]}px ${T.s[3]}px`}}/>
+                                    <input type="time" value={editLeg.time} onChange={e=>setEditLeg({...editLeg,time:e.target.value})} style={{...sty.input,padding:`${T.s[2]}px ${T.s[3]}px`}}/>
+                                  </div>
+                                  <div style={{display:"flex",gap:T.s[2],marginTop:T.s[2]}}>
+                                    <button onClick={()=>{
+                                      if(!editLeg.price || !(parseFloat(editLeg.size)>0)) return alert("Price and size required");
+                                      updateLeg(t.id, side, i, {price:String(editLeg.price), size:String(editLeg.size), time:editLeg.time||leg.time||nowT()});
+                                      setEditLeg(null);
+                                    }} style={{...sty.btn("primary"),flex:1,padding:`${T.s[2]}px 0`}}>save</button>
+                                    <button onClick={()=>setEditLeg(null)} style={{...sty.btn(),flex:1,padding:`${T.s[2]}px 0`}}>cancel</button>
+                                  </div>
+                                </div>
+                              );
+                              return (
+                                <div key={side+i} style={{display:"grid",gridTemplateColumns:isMob?"40px 1fr 1fr 60px":"80px 1fr 1fr 1fr 90px",gap:T.s[2],padding:`${T.s[2]}px 0`,borderBottom:T.rule1,fontSize:T.size.small,alignItems:"center"}}>
                                   <span style={{color:T.mut}}>#{i+1}</span>
                                   <span style={{color:T.text,fontFamily:"'JetBrains Mono', monospace"}}>{leg.size}</span>
                                   <span style={{color:T.text,fontFamily:"'JetBrains Mono', monospace"}}>@ {leg.price}</span>
                                   {!isMob && <span style={{color:T.mut}}>{leg.time||"—"}</span>}
-                                  <button onClick={()=>{if(confirm("Remove this entry?")) removeLeg(t.id,"entry",i);}} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",fontSize:14,padding:0}}>×</button>
+                                  <span style={{display:"flex",gap:T.s[3],justifyContent:"flex-end"}}>
+                                    <button onClick={()=>setEditLeg({tid:t.id, side, idx:i, price:leg.price||"", size:leg.size||"", time:leg.time||""})} style={{background:"transparent",border:"none",color:T.amb,cursor:"pointer",fontSize:T.size.tiny,padding:0,fontFamily:"'JetBrains Mono', monospace"}}>edit</button>
+                                    <button onClick={()=>{if(confirm(`Remove this ${side}?`)) removeLeg(t.id,side,i);}} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",fontSize:14,padding:0}}>×</button>
+                                  </span>
                                 </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Exits table */}
-                          {exits.length > 0 && (
-                            <div style={{marginBottom:T.s[4]}}>
-                              <div style={{...sty.label,color:t.direction==="Long"?T.rd:T.gr,marginBottom:T.s[2],fontSize:T.size.tiny}}>{t.direction==="Long"?"exits (sells)":"exits (buys)"}</div>
-                              {exits.map((leg,i) => (
-                                <div key={i} style={{display:"grid",gridTemplateColumns:isMob?"60px 1fr 1fr 30px":"80px 1fr 1fr 1fr 40px",gap:T.s[2],padding:`${T.s[2]}px 0`,borderBottom:T.rule1,fontSize:T.size.small,alignItems:"center"}}>
-                                  <span style={{color:T.mut}}>#{i+1}</span>
-                                  <span style={{color:T.text,fontFamily:"'JetBrains Mono', monospace"}}>{leg.size}</span>
-                                  <span style={{color:T.text,fontFamily:"'JetBrains Mono', monospace"}}>@ {leg.price}</span>
-                                  {!isMob && <span style={{color:T.mut}}>{leg.time||"—"}</span>}
-                                  <button onClick={()=>{if(confirm("Remove this exit?")) removeLeg(t.id,"exit",i);}} style={{background:"transparent",border:"none",color:T.rd,cursor:"pointer",fontSize:14,padding:0}}>×</button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                              );
+                            };
+                            return (
+                            <>
+                            {entries.length > 0 && (
+                              <div style={{marginBottom:T.s[4]}}>
+                                <div style={{...sty.label,color:t.direction==="Long"?T.gr:T.rd,marginBottom:T.s[2],fontSize:T.size.tiny}}>{t.direction==="Long"?"entries (buys)":"entries (sells)"}</div>
+                                {entries.map((leg,i) => legRow(leg, i, "entry"))}
+                              </div>
+                            )}
+                            {exits.length > 0 && (
+                              <div style={{marginBottom:T.s[4]}}>
+                                <div style={{...sty.label,color:t.direction==="Long"?T.rd:T.gr,marginBottom:T.s[2],fontSize:T.size.tiny}}>{t.direction==="Long"?"exits (sells)":"exits (buys)"}</div>
+                                {exits.map((leg,i) => legRow(leg, i, "exit"))}
+                              </div>
+                            )}
+                            </>
+                            );
+                          })()}
 
                           {/* Add leg controls — always available (you can add legs retroactively) */}
                           {true && (
