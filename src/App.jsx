@@ -32,7 +32,7 @@ const T = {
   rule2: "1px solid #4a4538",
 };
 
-const BUILD = "v.2026.06.04.0100";  // updated to force-refresh deploys
+const BUILD = "v.2026.06.04.0140";  // updated to force-refresh deploys
 
 /* ════════════════════════════════════════════════════════════
    STYLE PRIMITIVES — composable, consistent
@@ -605,15 +605,21 @@ export default function App() {
     if (editingTradeId) {
       // ── UPDATE EXISTING TRADE — preserve legs ──
       const existing = trades.find(t => t.id === editingTradeId);
-      // Rebuild legs from new form values, but only the FIRST leg of each (preserves later pyramids)
-      const newEntries = (existing.entries && existing.entries.length > 1)
-        ? [{...(existing.entries[0]||{}), price:String(tf.entry), size:String(tf.size)}, ...existing.entries.slice(1)]
-        : [{ id:1, price:String(tf.entry), size:String(tf.size), time:tf.time }];
-      const newExits = isClosed
-        ? ((existing.exits && existing.exits.length > 1)
-          ? [{...(existing.exits[0]||{}), price:String(tf.exitPrice), size:String(tf.size)}, ...existing.exits.slice(1)]
-          : [{ id:1, price:String(tf.exitPrice), size:String(tf.size), time:tf.exitTime||tf.time }])
-        : (existing.exits || []);
+      const exLegsE = existing.entries || [], exLegsX = existing.exits || [];
+      const oldEntryTotal = sumSize(exLegsE), oldExitTotal = sumSize(exLegsX);
+      // Multi-leg sides are NOT rewritten from the form (form shows weighted averages —
+      // pushing an average into one fill corrupts the legs). Edit fills in position legs instead.
+      const newEntries = exLegsE.length > 1
+        ? exLegsE
+        : [{ id:(exLegsE[0]?.id)||1, price:String(tf.entry), size:String(tf.size), time:tf.time, note:exLegsE[0]?.note||"" }];
+      const wasFullClose = exLegsX.length === 1 && oldEntryTotal > 0 && oldExitTotal >= oldEntryTotal;
+      const newExits = !isClosed
+        ? exLegsX
+        : exLegsX.length > 1
+          ? exLegsX
+          : [{ id:(exLegsX[0]?.id)||1, price:String(tf.exitPrice),
+               size:String(exLegsX.length === 1 ? (wasFullClose ? tf.size : exLegsX[0].size) : tf.size),
+               time: tf.exitTime || exLegsX[0]?.time || tf.time, note:exLegsX[0]?.note||"" }];
       const merged = recalcLegs({
         ...existing, ...tf, id: editingTradeId,
         exitDate: isClosed ? (tf.exitDate || existing.exitDate || today()) : "",
@@ -1209,16 +1215,28 @@ export default function App() {
       })()}
 
       {/* prices */}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4],marginBottom:T.s[5]}}>
-        <Field label="entry"><input type="number" style={sty.input} value={tf.entry} onChange={e=>updateTf({entry:e.target.value})}/></Field>
-        <Field label="stop loss"><input type="number" style={sty.input} value={tf.sl} onChange={e=>setTf({...tf,sl:e.target.value})}/></Field>
-        <Field label="exit (optional)"><input type="number" style={sty.input} value={tf.exitPrice} onChange={e=>updateTf({exitPrice:e.target.value})} placeholder="leave blank for open"/></Field>
-      </div>
+      {(() => {
+        const multiE = !!editingTradeId && (tf.entries||[]).length > 1;
+        const multiX = !!editingTradeId && (tf.exits||[]).length > 1;
+        const lock = { readOnly:true, style:{...sty.input, opacity:.55, cursor:"not-allowed"} };
+        return (
+        <>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:T.s[4],marginBottom:(multiE||multiX)?T.s[2]:T.s[5]}}>
+          <Field label={multiE?"entry (avg)":"entry"}><input type="number" {...(multiE?lock:{style:sty.input})} value={tf.entry} onChange={e=>{ if(!multiE) updateTf({entry:e.target.value}); }}/></Field>
+          <Field label="stop loss"><input type="number" style={sty.input} value={tf.sl} onChange={e=>setTf({...tf,sl:e.target.value})}/></Field>
+          <Field label={multiX?"exit (avg)":"exit (optional)"}><input type="number" {...(multiX?lock:{style:sty.input})} value={tf.exitPrice} onChange={e=>{ if(!multiX) updateTf({exitPrice:e.target.value}); }} placeholder="leave blank for open"/></Field>
+        </div>
+        {(multiE||multiX) && (
+          <div style={{color:T.amb,fontSize:T.size.tiny,marginBottom:T.s[5],lineHeight:1.5}}>this trade has multiple {multiE&&multiX?"entry and exit":multiE?"entry":"exit"} orders — these prices are weighted averages and can't be typed over. edit the exact fills in the trade's position legs section.</div>
+        )}
 
-      {/* size */}
-      <div style={{marginBottom:T.s[5]}}>
-        <Field label="position size"><input type="number" style={sty.input} value={tf.size} onChange={e=>updateTf({size:e.target.value})}/></Field>
-      </div>
+        {/* size */}
+        <div style={{marginBottom:T.s[5]}}>
+          <Field label={multiE?"position size (from legs)":"position size"}><input type="number" {...(multiE?lock:{style:sty.input})} value={tf.size} onChange={e=>{ if(!multiE) updateTf({size:e.target.value}); }}/></Field>
+        </div>
+        </>
+        );
+      })()}
 
       {/* extra orders — log each fill for exact brokerage (₹20 per order) */}
       {!editingTradeId && (
